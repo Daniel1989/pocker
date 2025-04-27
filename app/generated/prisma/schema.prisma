@@ -1,0 +1,89 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id          String       @id @default(uuid())
+  email       String       @unique
+  name        String?
+  password    String
+  chips       Int          @default(1000)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  games       Game[]       @relation("PlayerGames")
+  hostedGames Game[]       @relation("HostedGames")
+  playerHands PlayerHand[]
+  actions     Action[]
+}
+
+model Game {
+  id          String       @id @default(uuid())
+  name        String
+  status      String       @default("WAITING") // WAITING, ACTIVE, FINISHED
+  hostId      String
+  blinds      String       @default("10/20") // Small blind / big blind
+  maxPlayers  Int          @default(9)
+  buyIn       Int          @default(100)
+  host        User         @relation("HostedGames", fields: [hostId], references: [id])
+  players     User[]       @relation("PlayerGames")
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  rounds      Round[]
+  playerHands PlayerHand[]
+}
+
+model Round {
+  id             String       @id @default(uuid())
+  gameId         String
+  game           Game         @relation(fields: [gameId], references: [id])
+  number         Int
+  status         String       @default("PREFLOP") // PREFLOP, FLOP, TURN, RIVER, SHOWDOWN, FINISHED
+  currentBet     Int          @default(0)
+  pot            Int          @default(0)
+  dealerPosition Int          @default(0)
+  communityCards String? // Stored as JSON string: ["2H","3D","AS","KD","QC"]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  actions        Action[]
+  playerHands    PlayerHand[]
+}
+
+model PlayerHand {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  gameId        String
+  game          Game     @relation(fields: [gameId], references: [id])
+  roundId       String
+  round         Round    @relation(fields: [roundId], references: [id])
+  cards         String // Stored as JSON string: ["AC","KD"]
+  folded        Boolean  @default(false)
+  showedCards   Boolean  @default(false)
+  finalHandRank Int? // 1-10 (Royal Flush to High Card)
+  finalHandDesc String? // Description of the final hand
+  createdAt     DateTime @default(now())
+}
+
+model Action {
+  id        String   @id @default(uuid())
+  roundId   String
+  round     Round    @relation(fields: [roundId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String // FOLD, CHECK, CALL, BET, RAISE, ALL_IN
+  amount    Int      @default(0)
+  position  Int? // Player position at the table
+  createdAt DateTime @default(now())
+}
