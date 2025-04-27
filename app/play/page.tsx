@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import PokerTable from '../components/PokerTable';
 import ActionControls from '../components/ActionControls';
 import GameResult from '../components/GameResult';
@@ -66,6 +66,9 @@ const PokerGamePage = () => {
   const [gameLogs, setGameLogs] = useState<LogEntry[]>([]);
   const [isLogVisible, setIsLogVisible] = useState(true);
   
+  // Ref to track if an AI action is in progress to prevent multiple simultaneous AI actions
+  const isAIActing = useRef(false);
+
   // Initialize or reset the game
   const initializeGame = useCallback(() => {
     // Generate random AI players
@@ -115,22 +118,34 @@ const PokerGamePage = () => {
   
   // Start a new game
   const startGame = () => {
+    console.log("=== STARTING NEW GAME ===");
+    
     // Generate and shuffle deck
     const newDeck = generateDeck();
+    console.log(`Generated new deck with ${newDeck.length} cards`);
     
     // Deal 2 cards to each player
     const { playerCards, remainingDeck } = dealCards(players.length);
+    console.log(`Dealt cards to ${players.length} players, remaining deck: ${remainingDeck.length} cards`);
+    
+    // Make sure we're not in the middle of another game
+    if (isGameActive) {
+      console.log("Game is already active, not starting a new one");
+      return;
+    }
     
     // Update players with their cards
     const updatedPlayers = players.map((player, index) => ({
       ...player,
       cards: playerCards[index],
       folded: false,
+      lastAction: undefined, // Reset last action
     }));
     
     // Calculate positions
     const smallBlindPos = (dealerIndex + 1) % players.length;
     const bigBlindPos = (dealerIndex + 2) % players.length;
+    console.log(`Dealer: ${players[dealerIndex].name}, Small Blind: ${players[smallBlindPos].name}, Big Blind: ${players[bigBlindPos].name}`);
     
     // Collect blinds
     const newPot = BLINDS.small + BLINDS.big;
@@ -155,12 +170,19 @@ const PokerGamePage = () => {
     });
     
     // Update player contributions
-    const newContributions = { ...playerContributions };
+    const newContributions: Record<string, number> = {};
+    newPlayers.forEach(player => {
+      newContributions[player.id] = 0;
+    });
     newContributions[newPlayers[smallBlindPos].id] = BLINDS.small;
     newContributions[newPlayers[bigBlindPos].id] = BLINDS.big;
     
     // First player to act is after the big blind
     const firstToAct = (bigBlindPos + 1) % players.length;
+    console.log(`First to act: ${newPlayers[firstToAct].name} (index: ${firstToAct})`);
+    
+    // Create empty community cards array
+    const emptyCommCards: Card[] = [];
     
     // Add logs for blinds
     const newLogs: LogEntry[] = [
@@ -180,7 +202,9 @@ const PokerGamePage = () => {
       }
     ];
     
-    // Update state
+    console.log(`Setting up the game state...`);
+    
+    // Update all state in one batch to avoid race conditions
     setDeck(remainingDeck);
     setPlayers(newPlayers);
     setPot(newPot);
@@ -188,180 +212,296 @@ const PokerGamePage = () => {
     setCurrentPlayerIndex(firstToAct);
     setGamePhase(PHASES[0]); // PREFLOP
     setPlayerContributions(newContributions);
-    setIsGameActive(true);
+    setCommunityCards(emptyCommCards);
     setGameLogs(newLogs);
+    // Set game active last - this will trigger the useEffect that handles AI actions
+    setIsGameActive(true);
     
-    // Check if the first player is AI, and if so, trigger their action
-    if (newPlayers[firstToAct].isAI) {
-      console.log(`First player is AI: ${newPlayers[firstToAct].name}`);
-      triggerAIAction(firstToAct, newPlayers, BLINDS.big, newContributions);
-    } else {
-      console.log(`First player is human: ${newPlayers[firstToAct].name}`);
-    }
+    console.log(`Game state updated. Starting the game with ${newPlayers.length} players.`);
   };
   
-  // Handle player action (fold, check, call, bet, raise, all-in)
-  const handlePlayerAction = (action: string, amount?: number) => {
-    const currentPlayer = players[currentPlayerIndex];
-    const playerId = currentPlayer.id;
-    
-    // Copy current state
-    const updatedPlayers = [...players];
-    const newContributions = { ...playerContributions };
-    let newPot = pot;
-    let newCurrentBet = currentBet;
-    
-    // Create new log entry
-    let logEntry: LogEntry | null = null;
-    
-    // Process action
-    switch (action) {
-      case 'FOLD':
-        updatedPlayers[currentPlayerIndex] = {
-          ...currentPlayer,
-          folded: true,
-          lastAction: 'Fold',
-        };
-        logEntry = {
-          playerId,
-          playerName: currentPlayer.name,
-          action: 'folded',
-          timestamp: Date.now()
-        };
-        break;
-        
-      case 'CHECK':
-        updatedPlayers[currentPlayerIndex] = {
-          ...currentPlayer,
-          lastAction: 'Check',
-        };
-        logEntry = {
-          playerId,
-          playerName: currentPlayer.name,
-          action: 'checked',
-          timestamp: Date.now()
-        };
-        break;
-        
-      case 'CALL':
-        if (amount) {
-          updatedPlayers[currentPlayerIndex] = {
-            ...currentPlayer,
-            chips: currentPlayer.chips - amount,
-            lastAction: `Call (${amount})`,
-          };
-          newPot += amount;
-          newContributions[playerId] = (newContributions[playerId] || 0) + amount;
-          logEntry = {
-            playerId,
-            playerName: currentPlayer.name,
-            action: 'called',
-            amount,
-            timestamp: Date.now()
-          };
-        }
-        break;
-        
-      case 'BET':
-        if (amount) {
-          updatedPlayers[currentPlayerIndex] = {
-            ...currentPlayer,
-            chips: currentPlayer.chips - amount,
-            lastAction: `Bet (${amount})`,
-          };
-          newPot += amount;
-          newCurrentBet = amount;
-          newContributions[playerId] = (newContributions[playerId] || 0) + amount;
-          logEntry = {
-            playerId,
-            playerName: currentPlayer.name,
-            action: 'bet',
-            amount,
-            timestamp: Date.now()
-          };
-        }
-        break;
-        
-      case 'RAISE':
-        if (amount) {
-          // Amount is the new total bet, so we need to calculate the increase
-          const additionalAmount = amount - newContributions[playerId];
-          
-          updatedPlayers[currentPlayerIndex] = {
-            ...currentPlayer,
-            chips: currentPlayer.chips - additionalAmount,
-            lastAction: `Raise to ${amount}`,
-          };
-          newPot += additionalAmount;
-          newCurrentBet = amount;
-          newContributions[playerId] = amount;
-          logEntry = {
-            playerId,
-            playerName: currentPlayer.name,
-            action: 'raised to',
-            amount,
-            timestamp: Date.now()
-          };
-        }
-        break;
-        
-      case 'ALL_IN':
-        const allInAmount = currentPlayer.chips;
-        updatedPlayers[currentPlayerIndex] = {
-          ...currentPlayer,
-          chips: 0,
-          lastAction: `All-In (${allInAmount})`,
-        };
-        newPot += allInAmount;
-        if (allInAmount + newContributions[playerId] > newCurrentBet) {
-          newCurrentBet = allInAmount + newContributions[playerId];
-        }
-        newContributions[playerId] = (newContributions[playerId] || 0) + allInAmount;
-        logEntry = {
-          playerId,
-          playerName: currentPlayer.name,
-          action: 'went all-in',
-          amount: allInAmount,
-          timestamp: Date.now()
-        };
-        break;
-    }
-    
-    // Update state
-    setPlayers(updatedPlayers);
-    setPot(newPot);
-    setCurrentBet(newCurrentBet);
-    setPlayerContributions(newContributions);
-    
-    // Add log entry if valid
-    if (logEntry) {
-      setGameLogs(prevLogs => [...prevLogs, logEntry!]);
-    }
-    
-    // Move to next player or next phase
-    moveToNextPlayerOrPhase(updatedPlayers, newCurrentBet, newContributions);
-  };
-  
-  // Move to next player or next phase
-  const moveToNextPlayerOrPhase = (
-    updatedPlayers: PlayerInfo[],
-    newCurrentBet: number,
-    newContributions: Record<string, number>
-  ) => {
-    // Check if all players have acted and all active players have matched the current bet
-    const activePlayers = updatedPlayers.filter(p => !p.folded);
-    
-    // If only one player remains, they win
-    if (activePlayers.length === 1) {
-      console.log('Only one player remains, ending hand');
-      endHand(updatedPlayers, activePlayers[0]);
+  // Handle AI actions when game state changes
+  useEffect(() => {
+    // Only proceed if game is active and we have a valid current player
+    if (!isGameActive || currentPlayerIndex < 0) {
       return;
     }
     
+    const currentPlayer = players[currentPlayerIndex];
+    
+    // Check if current player is AI and should act
+    if (currentPlayer?.isAI) {
+      // If AI action is already in progress, don't trigger another one
+      if (isAIActing.current) {
+        return;
+      }
+      
+      // Mark that AI is now acting
+      isAIActing.current = true;
+      
+      console.log(`AI ${currentPlayer.name} is set to act. Triggering AI action...`);
+      
+      const gameStateForAI = {
+        currentBet: currentBet,
+        pot: pot,
+        communityCards: communityCards,
+        phase: gamePhase,
+        players: players.map(p => ({
+          id: p.id,
+          chips: p.chips,
+          cards: p.cards || [],
+          folded: p.folded || false,
+          totalBet: playerContributions[p.id] || 0,
+        })),
+      };
+      
+      const aiPlayerState: PlayerState = {
+        id: currentPlayer.id,
+        chips: currentPlayer.chips,
+        cards: currentPlayer.cards || [],
+        folded: false,
+        totalBet: playerContributions[currentPlayer.id] || 0,
+      };
+      
+      // Determine AI personality based on position
+      const aiLevel = currentPlayerIndex % 3 === 0 ? AILevel.EASY : 
+                     currentPlayerIndex % 3 === 1 ? AILevel.MEDIUM : AILevel.HARD;
+      const personality = createAIPersonality(aiLevel);
+      
+      console.log(`AI personality: ${aiLevel}`);
+      
+      // Get AI decision
+      const decision = makeAIDecision(aiPlayerState, gameStateForAI, personality);
+      console.log(`AI ${currentPlayer.name} decision:`, decision);
+      
+      // Capture current player index to verify it hasn't changed
+      const playerIndexAtTimeOfDecision = currentPlayerIndex;
+      
+      // Execute the AI action with a short delay
+      const timeoutId = setTimeout(() => {
+        // Release the AI action flag when done
+        isAIActing.current = false;
+        
+        // Final check to make sure game state is still valid and it's still this AI's turn
+        if (!isGameActive || currentPlayerIndex !== playerIndexAtTimeOfDecision) {
+          console.log("Game state changed, aborting AI action");
+          return;
+        }
+        
+        console.log(`Executing AI action: ${decision.action}`, decision.amount);
+        handlePlayerAction(decision.action, decision.amount);
+      }, AI_ACTION_DELAY);
+      
+      // Cleanup function to cancel the timeout and reset flag if component unmounts or dependencies change
+      return () => {
+        clearTimeout(timeoutId);
+        isAIActing.current = false;
+      };
+    }
+  }, [isGameActive, currentPlayerIndex, players, currentBet, pot, communityCards, gamePhase, playerContributions, userId]);
+  
+  // Handle player action
+  const handlePlayerAction = (action: string, amount?: number) => {
+    // Prevent actions if game is not active
+    if (!isGameActive) {
+      console.log("Game not active, ignoring player action");
+      return;
+    }
+
+    // Ensure we have the current player
+    if (currentPlayerIndex === undefined || currentPlayerIndex < 0) {
+      console.error("No current player defined");
+      return;
+    }
+
+    const player = players[currentPlayerIndex];
+    console.log(`🎮 Player ${player.name} (${currentPlayerIndex}) action: ${action} ${amount !== undefined ? amount : ''}`);
+
+    // Create a copy of players array to modify
+    const newPlayers = [...players];
+    const newContributions = { ...playerContributions };
+
+    // Handle action
+    let newPot = pot;
+    let newCurrentBet = currentBet;
+    let newLogs = [...gameLogs];
+
+    if (action === 'fold') {
+      // Player folds
+      newPlayers[currentPlayerIndex] = {
+        ...player,
+        folded: true,
+        lastAction: 'Folded'
+      };
+      
+      newLogs.push({
+        playerId: player.id,
+        playerName: player.name,
+        action: 'folded',
+        timestamp: Date.now()
+      });
+    } else if (action === 'check') {
+      // Player checks
+      newPlayers[currentPlayerIndex] = {
+        ...player,
+        lastAction: 'Checked'
+      };
+      
+      newLogs.push({
+        playerId: player.id,
+        playerName: player.name,
+        action: 'checked',
+        timestamp: Date.now()
+      });
+    } else if (action === 'call') {
+      // Calculate call amount (difference between current bet and player's contribution)
+      const callAmount = currentBet - (playerContributions[player.id] || 0);
+      
+      if (callAmount <= 0) {
+        console.error("Invalid call: Player has already contributed enough");
+        return;
+      }
+      
+      // Ensure player has enough chips
+      if (player.chips < callAmount) {
+        console.error("Player doesn't have enough chips to call");
+        return;
+      }
+      
+      // Update player chips and pot
+      newPlayers[currentPlayerIndex] = {
+        ...player,
+        chips: player.chips - callAmount,
+        lastAction: `Called ${callAmount}`
+      };
+      
+      newPot += callAmount;
+      newContributions[player.id] = (newContributions[player.id] || 0) + callAmount;
+      
+      newLogs.push({
+        playerId: player.id,
+        playerName: player.name,
+        action: 'called',
+        amount: callAmount,
+        timestamp: Date.now()
+      });
+    } else if (action === 'bet' || action === 'raise') {
+      // Handle bet/raise (they're similar)
+      if (!amount || amount <= 0) {
+        console.error("Invalid bet/raise amount");
+        return;
+      }
+      
+      // Calculate total amount player needs to put in
+      const currentContribution = playerContributions[player.id] || 0;
+      let totalNeeded: number;
+      
+      if (action === 'bet') {
+        // For a bet, player needs to put in the bet amount
+        totalNeeded = amount;
+        
+        // Can only bet if no current bet exists
+        if (currentBet > 0 && gamePhase !== PHASES[0]) {
+          console.error("Can't bet when there's already a bet; must raise instead");
+          return;
+        }
+      } else {
+        // For a raise, player needs to put in current bet + raise amount
+        totalNeeded = currentBet + amount;
+      }
+      
+      // Calculate how much more the player needs to add
+      const additionalAmount = totalNeeded - currentContribution;
+      
+      // Ensure player has enough chips
+      if (player.chips < additionalAmount) {
+        console.error("Player doesn't have enough chips for this action");
+        return;
+      }
+      
+      // Update player chips, bet, and pot
+      newPlayers[currentPlayerIndex] = {
+        ...player,
+        chips: player.chips - additionalAmount,
+        lastAction: `${action === 'bet' ? 'Bet' : 'Raised to'} ${totalNeeded}`
+      };
+      
+      newCurrentBet = totalNeeded;
+      newPot += additionalAmount;
+      newContributions[player.id] = (newContributions[player.id] || 0) + additionalAmount;
+      
+      // Log the action
+      newLogs.push({
+        playerId: player.id,
+        playerName: player.name,
+        action: action === 'bet' ? 'bet' : 'raised to',
+        amount: totalNeeded,
+        timestamp: Date.now()
+      });
+    } else if (action === 'all-in') {
+      // Player goes all-in
+      const allInAmount = player.chips;
+      
+      if (allInAmount <= 0) {
+        console.error("Player has no chips to go all-in");
+        return;
+      }
+      
+      // Update current bet if all-in amount is higher
+      const totalContribution = (playerContributions[player.id] || 0) + allInAmount;
+      if (totalContribution > newCurrentBet) {
+        newCurrentBet = totalContribution;
+      }
+      
+      // Update player chips, pot, and contributions
+      newPlayers[currentPlayerIndex] = {
+        ...player,
+        chips: 0,
+        lastAction: `All-in (${allInAmount})`
+      };
+      
+      newPot += allInAmount;
+      newContributions[player.id] = (newContributions[player.id] || 0) + allInAmount;
+      
+      newLogs.push({
+        playerId: player.id,
+        playerName: player.name,
+        action: 'went all-in',
+        amount: allInAmount,
+        timestamp: Date.now()
+      });
+    }
+    
+    // Update state
+    setPlayers(newPlayers);
+    setPot(newPot);
+    setCurrentBet(newCurrentBet);
+    setPlayerContributions(newContributions);
+    setGameLogs(newLogs);
+    
+    console.log(`After action: pot=${newPot}, currentBet=${newCurrentBet}`);
+    console.log("Player contributions:", newContributions);
+    
+    // Check if hand is over (only one player left)
+    const activePlayers = newPlayers.filter(p => !p.folded);
+    if (activePlayers.length === 1) {
+      console.log("Only one player left! Ending hand...");
+      endHand(newPlayers, activePlayers[0]);
+      return;
+    }
+    
+    // Move to the next player or phase
+    moveToNextPlayerOrPhase(newPlayers, newContributions, newCurrentBet);
+  };
+  
+  // Move to next player or phase
+  const moveToNextPlayerOrPhase = (updatedPlayers: PlayerInfo[], newContributions: Record<string, number>, currentBetAmount: number) => {
     // Check if all active players have acted and matched the current bet
+    const activePlayers = updatedPlayers.filter(p => !p.folded);
+    
     const allPlayersActed = activePlayers.every(player => {
       const contribution = newContributions[player.id] || 0;
-      return contribution === newCurrentBet || player.chips === 0;
+      return contribution === currentBetAmount || player.chips === 0;
     });
     
     console.log(`All players acted: ${allPlayersActed}, Current phase: ${gamePhase}`);
@@ -372,7 +512,58 @@ const PokerGamePage = () => {
       
       if (currentPhaseIndex < PHASES.length - 1) {
         console.log(`Moving to next phase from ${gamePhase} to ${PHASES[currentPhaseIndex + 1]}`);
-        moveToNextPhase(updatedPlayers, newCurrentBet);
+        const nextPhase = PHASES[currentPhaseIndex + 1];
+        
+        // Deal community cards based on the phase
+        let newCommunityCards = [...communityCards];
+        if (nextPhase === PHASES[1]) {
+          // Flop - deal 3 cards
+          newCommunityCards = [...deck.slice(0, 3)];
+          setDeck(deck.slice(3));
+        } else if (nextPhase === PHASES[2] || nextPhase === PHASES[3]) {
+          // Turn or River - deal 1 card
+          newCommunityCards = [...communityCards, deck[0]];
+          setDeck(deck.slice(1));
+        }
+        
+        // Reset current bet for the new phase
+        setCurrentBet(0);
+        setCommunityCards(newCommunityCards);
+        setGamePhase(nextPhase);
+        
+        // Reset to first player (after dealer) for new phase
+        let firstPlayerIndex = (dealerIndex + 1) % updatedPlayers.length;
+        
+        // Skip folded players and players who are all-in
+        while (updatedPlayers[firstPlayerIndex].folded || updatedPlayers[firstPlayerIndex].chips === 0) {
+          firstPlayerIndex = (firstPlayerIndex + 1) % updatedPlayers.length;
+          
+          // If we've looped through all players, no one can act
+          if (firstPlayerIndex === dealerIndex) {
+            console.log("No players can act in new phase, advancing to next phase");
+            // Handle case when no players can act in this phase
+            if (currentPhaseIndex + 1 < PHASES.length - 1) {
+              moveToNextPlayerOrPhase(updatedPlayers, newContributions, 0);
+            } else {
+              // End the hand if we're at the final phase
+              const lastActivePlayers = updatedPlayers.filter(p => !p.folded);
+              if (lastActivePlayers.length === 1) {
+                endHand(updatedPlayers, lastActivePlayers[0]);
+              } else {
+                endHand(updatedPlayers);
+              }
+            }
+            return;
+          }
+        }
+        
+        setCurrentPlayerIndex(firstPlayerIndex);
+        
+        // Trigger AI action if first player is AI
+        if (updatedPlayers[firstPlayerIndex].isAI && isGameActive) {
+          console.log(`AI ${updatedPlayers[firstPlayerIndex].name} is first to act in new phase`);
+          // The AI action will be handled by the useEffect hook
+        }
       } else {
         // End the hand if we're at the final phase
         console.log('Final phase reached, ending hand');
@@ -388,189 +579,33 @@ const PokerGamePage = () => {
         updatedPlayers[nextPlayerIndex].chips === 0
       ) {
         nextPlayerIndex = (nextPlayerIndex + 1) % updatedPlayers.length;
+        
+        // If we've looped through all players, break to avoid infinite loop
+        if (nextPlayerIndex === currentPlayerIndex) {
+          console.log("Warning: Potential player loop detected");
+          break;
+        }
       }
       
       console.log(`Moving to next player: ${updatedPlayers[nextPlayerIndex].name} (index: ${nextPlayerIndex})`);
       
-      // Update current player
+      // Update current player index
       setCurrentPlayerIndex(nextPlayerIndex);
       
-      // If next player is AI, trigger their action
+      // Log whether next player is AI or human
       if (updatedPlayers[nextPlayerIndex].isAI) {
         console.log(`Next player is AI: ${updatedPlayers[nextPlayerIndex].name}`);
-        triggerAIAction(nextPlayerIndex, updatedPlayers, newCurrentBet, newContributions);
+        // The AI action will be handled by the useEffect hook
       } else {
         console.log(`Next player is human: ${updatedPlayers[nextPlayerIndex].name}`);
       }
     }
   };
   
-  // Move to next phase
-  const moveToNextPhase = (
-    updatedPlayers: PlayerInfo[],
-    newCurrentBet: number
-  ) => {
-    const currentPhaseIndex = PHASES.indexOf(gamePhase);
-    const nextPhase = PHASES[currentPhaseIndex + 1];
-    
-    console.log(`Moving to next phase: ${nextPhase}`);
-    
-    // Deal community cards based on the phase
-    let newCommunityCards = [...communityCards];
-    let remainingDeck = [...deck];
-    
-    // Create log entry for phase change
-    let phaseLog: LogEntry = {
-      playerId: 'system',
-      playerName: 'Dealer',
-      action: `dealing the ${nextPhase.toLowerCase()}`,
-      timestamp: Date.now()
-    };
-    
-    switch (nextPhase) {
-      case 'FLOP':
-        // Deal 3 cards for the flop
-        const flopResult = dealCommunityCards(remainingDeck, 3);
-        newCommunityCards = flopResult.communityCards;
-        remainingDeck = flopResult.remainingDeck;
-        console.log(`Flop cards: ${newCommunityCards.join(', ')}`);
-        break;
-        
-      case 'TURN':
-      case 'RIVER':
-        // Deal 1 card for turn or river
-        const cardResult = dealCommunityCards(remainingDeck, 1);
-        newCommunityCards = [...newCommunityCards, ...cardResult.communityCards];
-        remainingDeck = cardResult.remainingDeck;
-        console.log(`${nextPhase} card: ${cardResult.communityCards[0]}`);
-        break;
-        
-      case 'SHOWDOWN':
-        // No new cards, just evaluate hands
-        phaseLog = {
-          playerId: 'system',
-          playerName: 'Dealer',
-          action: 'starting showdown',
-          timestamp: Date.now()
-        };
-        console.log('Starting showdown');
-        setShowdown(true);
-        endHand(updatedPlayers);
-        return;
-    }
-    
-    // Add phase change to logs
-    setGameLogs(prevLogs => [...prevLogs, phaseLog]);
-    
-    // Reset current bet for the new phase
-    setCurrentBet(0);
-    
-    // Reset player contributions for the new betting round
-    const newContributions: Record<string, number> = {};
-    updatedPlayers.forEach(player => {
-      newContributions[player.id] = 0;
-    });
-    
-    // Start with player after dealer
-    let nextPlayerIndex = (dealerIndex + 1) % updatedPlayers.length;
-    
-    // Find next active player
-    while (
-      updatedPlayers[nextPlayerIndex].folded ||
-      updatedPlayers[nextPlayerIndex].chips === 0
-    ) {
-      nextPlayerIndex = (nextPlayerIndex + 1) % updatedPlayers.length;
-    }
-    
-    console.log(`First to act in ${nextPhase}: ${updatedPlayers[nextPlayerIndex].name} (index: ${nextPlayerIndex})`);
-
-    // Update state
-    setCommunityCards(newCommunityCards);
-    setDeck(remainingDeck);
-    setGamePhase(nextPhase);
-    setCurrentPlayerIndex(nextPlayerIndex);
-    setPlayerContributions(newContributions);
-    
-    // If next player is AI, trigger their action
-    if (updatedPlayers[nextPlayerIndex].isAI) {
-      console.log(`First player in ${nextPhase} is AI: ${updatedPlayers[nextPlayerIndex].name}`);
-      triggerAIAction(nextPlayerIndex, updatedPlayers, 0, newContributions);
-    } else {
-      console.log(`First player in ${nextPhase} is human: ${updatedPlayers[nextPlayerIndex].name}`);
-    }
-  };
-  
-  // Schedule AI action
-  const scheduleAIAction = (
-    aiIndex: number,
-    currentPlayers: PlayerInfo[],
-    currentBetAmount: number,
-    currentContributions: Record<string, number>
-  ) => {
-    setTimeout(() => {
-      if (!isGameActive) return;
-      
-      const aiPlayer = currentPlayers[aiIndex];
-      
-      // Log the AI action scheduling for debugging
-      console.log(`Scheduling action for AI player: ${aiPlayer.name}`);
-      
-      // Prepare game state for AI decision
-      const gameState = {
-        currentBet: currentBetAmount,
-        pot,
-        communityCards,
-        phase: gamePhase,
-        players: currentPlayers.map(p => ({
-          id: p.id,
-          chips: p.chips,
-          cards: p.cards || [],
-          folded: p.folded || false,
-          totalBet: currentContributions[p.id] || 0,
-        })),
-      };
-      
-      // Get AI personality based on player index (harder AIs at higher indices)
-      const aiLevel = aiIndex % 3 === 0 ? AILevel.EASY : 
-                     aiIndex % 3 === 1 ? AILevel.MEDIUM : AILevel.HARD;
-      const personality = createAIPersonality(aiLevel);
-      
-      // Get AI decision
-      const aiPlayerState: PlayerState = {
-        id: aiPlayer.id,
-        chips: aiPlayer.chips,
-        cards: aiPlayer.cards || [],
-        folded: aiPlayer.folded || false,
-        totalBet: currentContributions[aiPlayer.id] || 0,
-      };
-      
-      const decision = makeAIDecision(aiPlayerState, gameState, personality);
-      console.log(`AI ${aiPlayer.name} decision:`, decision);
-      
-      // Execute AI action
-      handlePlayerAction(decision.action, decision.amount);
-      
-    }, AI_ACTION_DELAY);
-  };
-  
-  // Add this new function after the scheduleAIAction function
-  const triggerAIAction = (
-    aiIndex: number,
-    players: PlayerInfo[],
-    currentBetAmount: number,
-    contributions: Record<string, number>
-  ) => {
-    console.log(`Triggering AI action for ${players[aiIndex].name}`);
-    // Use setTimeout to delay AI action for visual effect
-    setTimeout(() => {
-      if (isGameActive) {
-        scheduleAIAction(aiIndex, players, currentBetAmount, contributions);
-      }
-    }, 1000);
-  };
-  
   // End the hand and determine the winner
   const endHand = (finalPlayers: PlayerInfo[], forcedWinner?: PlayerInfo) => {
+    console.log("Ending hand and determining winner");
+    
     if (forcedWinner) {
       // If only one player remains, they win automatically
       const winnings = pot;
@@ -607,6 +642,7 @@ const PokerGamePage = () => {
       
       setPlayers(playersWithUpdatedChips);
       setIsGameActive(false);
+      console.log(`Game ended. Winner: ${forcedWinner.name} (${forcedWinner.id})`);
       return;
     }
     
@@ -618,6 +654,8 @@ const PokerGamePage = () => {
         cards: p.cards as Card[],
         folded: p.folded || false,
       }));
+    
+    console.log(`Determining winner among ${activePlayers.length} active players`);
     
     // Determine the winner
     const winner = determineWinner(activePlayers, communityCards);
@@ -657,9 +695,13 @@ const PokerGamePage = () => {
         });
         
         setPlayers(playersWithUpdatedChips);
+        console.log(`Game ended. Winner: ${winningPlayer.name} with ${winner.winningHand.description}`);
       }
+    } else {
+      console.log("No winner determined!");
     }
     
+    // Set game as inactive only at the very end
     setIsGameActive(false);
   };
   

@@ -80,6 +80,14 @@ const PokerTable: React.FC<PokerTableProps> = ({
     });
   };
 
+  // Get appropriate message for current game state
+  const getTableMessage = () => {
+    if (!gamePhase) return "Click 'Start Game' to begin";
+    if (communityCards.length === 0 && gamePhase === 'PREFLOP') return "Pre-flop betting round";
+    if (communityCards.length === 0) return "Waiting for cards";
+    return "";
+  };
+
   return (
     <div className="relative w-full h-[500px] bg-green-800 rounded-full border-8 border-brown-900 overflow-hidden">
       {/* Center area with community cards and pot */}
@@ -90,7 +98,7 @@ const PokerTable: React.FC<PokerTableProps> = ({
               <Card key={index} card={card} />
             ))}
             {communityCards.length === 0 && (
-              <div className="text-white text-sm">Waiting for cards</div>
+              <div className="text-white text-sm px-4 py-2">{getTableMessage()}</div>
             )}
           </div>
         </div>
@@ -100,7 +108,7 @@ const PokerTable: React.FC<PokerTableProps> = ({
         </div>
         
         <div className="mt-2 bg-blue-900 text-white px-3 py-1 rounded-lg text-sm">
-          {gamePhase}
+          {gamePhase || "Waiting to start"}
         </div>
       </div>
       

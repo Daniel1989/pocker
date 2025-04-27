@@ -66,13 +66,24 @@ export const makeAIDecision = (
 ): { action: string; amount?: number } => {
   const { currentBet, pot, communityCards, phase } = gameState;
   
+  console.log(`AI ${aiPlayer.id} making decision:`, {
+    currentBet,
+    pot,
+    communityCards: communityCards.length,
+    phase,
+    aiChips: aiPlayer.chips,
+    aiBet: aiPlayer.totalBet
+  });
+  
   // If AI player has folded, no action needed
   if (aiPlayer.folded) {
+    console.log(`AI ${aiPlayer.id} has already folded, no action needed`);
     return { action: 'NONE' };
   }
   
   // Calculate how much AI needs to call
   const amountToCall = currentBet - aiPlayer.totalBet;
+  console.log(`AI ${aiPlayer.id} needs to call: ${amountToCall}`);
   
   // If AI can't afford the call, only options are fold or all-in
   if (amountToCall > aiPlayer.chips) {
@@ -80,9 +91,13 @@ export const makeAIDecision = (
     const handStrength = evaluateHandStrength(aiPlayer.cards, communityCards);
     const allInThreshold = 0.3 + personality.riskTolerance * 0.5;
     
+    console.log(`AI ${aiPlayer.id} can't afford call. Hand strength: ${handStrength}, All-in threshold: ${allInThreshold}`);
+    
     if (handStrength > allInThreshold || Math.random() < personality.bluffFrequency) {
+      console.log(`AI ${aiPlayer.id} decides to go ALL-IN`);
       return { action: 'ALL_IN' };
     } else {
+      console.log(`AI ${aiPlayer.id} decides to FOLD`);
       return { action: 'FOLD' };
     }
   }
@@ -97,6 +112,8 @@ export const makeAIDecision = (
     // Decide whether to bet/raise or check based on hand strength and personality
     const betThreshold = 0.3 + (1 - personality.aggressiveness) * 0.4;
     
+    console.log(`AI ${aiPlayer.id} can check or bet. Hand strength: ${handStrength}, Bluffing: ${isBluffing}, Bet threshold: ${betThreshold}`);
+    
     if (handStrength > betThreshold || isBluffing) {
       // Determine bet size based on hand strength and aggressiveness
       const betSize = determineBetSize(
@@ -107,8 +124,10 @@ export const makeAIDecision = (
         phase
       );
       
+      console.log(`AI ${aiPlayer.id} decides to BET ${betSize}`);
       return { action: 'BET', amount: betSize };
     } else {
+      console.log(`AI ${aiPlayer.id} decides to CHECK`);
       return { action: 'CHECK' };
     }
   }
@@ -123,7 +142,11 @@ export const makeAIDecision = (
   const foldThreshold = 0.2 + (1 - personality.riskTolerance) * 0.3;
   const raiseThreshold = 0.5 + (1 - personality.aggressiveness) * 0.2;
   
+  console.log(`AI ${aiPlayer.id} must decide to call, raise or fold. Hand strength: ${handStrength}, Bluffing: ${isBluffing}`);
+  console.log(`Fold threshold: ${foldThreshold}, Raise threshold: ${raiseThreshold}`);
+  
   if (handStrength < foldThreshold && !isBluffing) {
+    console.log(`AI ${aiPlayer.id} decides to FOLD`);
     return { action: 'FOLD' };
   } else if (handStrength > raiseThreshold || isBluffing) {
     // Determine raise size
@@ -140,13 +163,15 @@ export const makeAIDecision = (
     const finalRaise = Math.max(raiseSize, minimumRaise);
     
     if (finalRaise > aiPlayer.chips) {
-      // Not enough for a proper raise, go all-in
+      console.log(`AI ${aiPlayer.id} decides to go ALL-IN (not enough for proper raise)`);
       return { action: 'ALL_IN' };
     }
     
+    console.log(`AI ${aiPlayer.id} decides to RAISE to ${finalRaise}`);
     return { action: 'RAISE', amount: finalRaise };
   } else {
     // Call is the default middle-ground action
+    console.log(`AI ${aiPlayer.id} decides to CALL ${amountToCall}`);
     return { action: 'CALL', amount: amountToCall };
   }
 };
