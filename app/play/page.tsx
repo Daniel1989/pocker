@@ -11,6 +11,7 @@ import { generateDeck, dealCards, dealCommunityCards, evaluateHand, determineWin
 import { createAIPersonality, AILevel } from '../lib/ai-player';
 import Link from 'next/link';
 import { makeAIDecision } from '../lib/ai-player-llm';
+import ActionReplay from '../components/ActionReplay';
 // Define PlayerState interface to match ai-player.ts
 interface PlayerState {
   id: string;
@@ -76,12 +77,43 @@ export default function PokerGamePage({ searchParams }: PlayPageProps) {
   const [playerContributions, setPlayerContributions] = useState<Record<string, number>>({});
   const [gameLogs, setGameLogs] = useState<LogEntry[]>([]);
   const [isLogVisible, setIsLogVisible] = useState(true);
+  const [showActionReplay, setShowActionReplay] = useState(false);
   
   // Ref to track if an AI action is in progress to prevent multiple simultaneous AI actions
   const isAIActing = useRef(false);
 
   // Add gameId state
   const [gameIdState, setGameId] = useState<string | null>(null);
+
+  // Load game history when in review mode
+  useEffect(() => {
+    if (isReviewMode && gameId) {
+      const loadGameHistory = async () => {
+        try {
+          const response = await fetch(`/api/games/${gameId}`);
+          if (!response.ok) throw new Error('Failed to fetch game');
+          const gameData = await response.json();
+          
+          // Set game state from history
+          setPlayers(gameData.players);
+          setCommunityCards(gameData.communityCards || []);
+          setPot(gameData.pot || 0);
+          setCurrentBet(gameData.currentBet || 0);
+          setGamePhase(gameData.phase || 'PREFLOP');
+          setDealerIndex(gameData.dealerIndex || 0);
+          setGameId(gameId);
+          setIsGameActive(true);
+          
+          // Show action replay automatically
+          setShowActionReplay(true);
+        } catch (error) {
+          console.error('Error loading game history:', error);
+        }
+      };
+      
+      loadGameHistory();
+    }
+  }, [isReviewMode, gameId]);
 
   // Initialize or reset the game
   const initializeGame = useCallback(() => {
@@ -969,9 +1001,16 @@ export default function PokerGamePage({ searchParams }: PlayPageProps) {
           bestHand={winnerInfo.bestHand}
           isUser={winnerInfo.isUser}
           onPlayAgain={startNewHand}
-          onReview={() => console.log("do review")}
+          onReview={() => setShowActionReplay(true)}
           isReviewMode={isReviewMode}
           gameId={gameIdState || undefined}
+        />
+      )}
+
+      {showActionReplay && gameIdState && (
+        <ActionReplay
+          gameId={gameIdState}
+          onClose={() => setShowActionReplay(false)}
         />
       )}
     </div>
