@@ -582,14 +582,35 @@ const PokerGamePage = () => {
     // Check if all active players have acted and matched the current bet
     const activePlayers = updatedPlayers.filter(p => !p.folded);
     
+    // Get the last actions of all active players
+    const lastActions = activePlayers.map(player => {
+      return {
+        playerId: player.id,
+        lastAction: player.lastAction
+      };
+    });
+
+    // Check if all active players have acted (either matched the bet or checked when no bet)
     const allPlayersActed = activePlayers.every(player => {
       const contribution = newContributions[player.id] || 0;
-      return contribution === currentBetAmount || player.chips === 0;
+      // Player has acted if:
+      // 1. They've matched the current bet, OR
+      // 2. They've checked when there's no bet, OR
+      // 3. They're all-in
+      return (
+        contribution === currentBetAmount || 
+        (currentBetAmount === 0 && player.lastAction === 'Checked') ||
+        player.chips === 0
+      );
     });
+
+    // Check if everyone has checked (when there's no bet)
+    const allPlayersChecked = currentBetAmount === 0 && 
+      lastActions.every(action => action.lastAction === 'Checked');
     
-    console.log(`All players acted: ${allPlayersActed}, Current phase: ${gamePhase}`);
+    console.log(`All players acted: ${allPlayersActed}, All checked: ${allPlayersChecked}, Current phase: ${gamePhase}`);
     
-    if (allPlayersActed) {
+    if (allPlayersActed || allPlayersChecked) {
       // Move to next phase
       const currentPhaseIndex = PHASES.indexOf(gamePhase);
       
