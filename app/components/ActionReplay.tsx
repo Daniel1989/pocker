@@ -93,7 +93,7 @@ const ActionReplay: React.FC<ActionReplayProps> = ({ gameId, onClose }) => {
     if (!currentAction) return {};
 
     const { players, communityCards, gamePhase } = currentAction.gameState;
-    
+
     // Calculate remaining community cards based on game phase
     let remainingCards = 0;
     switch (gamePhase) {
@@ -163,6 +163,28 @@ const ActionReplay: React.FC<ActionReplayProps> = ({ gameId, onClose }) => {
 
         {currentAction && (
           <div className="mb-6">
+            <div className="flex justify-center gap-4">
+                <button
+                  onClick={goToPreviousAction}
+                  disabled={currentActionIndex === 0}
+                  className={`px-4 py-2 rounded ${currentActionIndex === 0
+                      ? 'bg-gray-600 cursor-not-allowed'
+                      : 'bg-blue-600 hover:bg-blue-700'
+                    }`}
+                >
+                  ← Previous
+                </button>
+                <button
+                  onClick={goToNextAction}
+                  disabled={currentActionIndex === totalActions - 1}
+                  className={`px-4 py-2 rounded ${currentActionIndex === totalActions - 1
+                      ? 'bg-gray-600 cursor-not-allowed'
+                      : 'bg-blue-600 hover:bg-blue-700'
+                    }`}
+                >
+                  Next →
+                </button>
+              </div>
             {/* Community Cards */}
             <div className="bg-gray-700 p-4 rounded-lg mb-4">
               <h3 className="text-lg font-semibold mb-2">Community Cards</h3>
@@ -179,7 +201,7 @@ const ActionReplay: React.FC<ActionReplayProps> = ({ gameId, onClose }) => {
                 </span>
               </p>
               <p className="text-sm text-gray-400">
-                Pot: ${currentAction.gameState.pot} | 
+                Pot: ${currentAction.gameState.pot} |
                 Phase: {currentAction.gameState.gamePhase} |
                 Current Bet: ${currentAction.gameState.currentBet}
               </p>
@@ -190,9 +212,8 @@ const ActionReplay: React.FC<ActionReplayProps> = ({ gameId, onClose }) => {
               {currentAction.gameState.players.map((player) => (
                 <div
                   key={player.id}
-                  className={`p-4 rounded-lg ${
-                    player.folded ? 'bg-gray-700 opacity-50' : 'bg-gray-700'
-                  }`}
+                  className={`p-4 rounded-lg ${player.folded ? 'bg-gray-700 opacity-50' : 'bg-gray-700'
+                    }`}
                 >
                   <div className="flex justify-between items-center mb-2">
                     <p className="font-semibold">{player.name}</p>
@@ -201,8 +222,8 @@ const ActionReplay: React.FC<ActionReplayProps> = ({ gameId, onClose }) => {
                       {player.folded
                         ? 'Folded'
                         : player.chips === 0
-                        ? 'All-in'
-                        : 'Active'}
+                          ? 'All-in'
+                          : 'Active'}
                     </p>
                   </div>
                   <div className="mb-2">
@@ -223,11 +244,10 @@ const ActionReplay: React.FC<ActionReplayProps> = ({ gameId, onClose }) => {
                       <div>
                         <p className="text-sm font-semibold">Win Probability:</p>
                         <p className="text-sm">
-                          <span className={`font-mono ${
-                            winProbabilities[player.id] > 50 ? 'text-green-400' :
-                            winProbabilities[player.id] > 25 ? 'text-yellow-400' :
-                            'text-red-400'
-                          }`}>
+                          <span className={`font-mono ${winProbabilities[player.id] > 50 ? 'text-green-400' :
+                              winProbabilities[player.id] > 25 ? 'text-yellow-400' :
+                                'text-red-400'
+                            }`}>
                             {winProbabilities[player.id]?.toFixed(1)}%
                           </span>
                         </p>
@@ -241,30 +261,7 @@ const ActionReplay: React.FC<ActionReplayProps> = ({ gameId, onClose }) => {
         )}
 
         {/* Navigation Controls */}
-        <div className="flex justify-center gap-4">
-          <button
-            onClick={goToPreviousAction}
-            disabled={currentActionIndex === 0}
-            className={`px-4 py-2 rounded ${
-              currentActionIndex === 0
-                ? 'bg-gray-600 cursor-not-allowed'
-                : 'bg-blue-600 hover:bg-blue-700'
-            }`}
-          >
-            ← Previous
-          </button>
-          <button
-            onClick={goToNextAction}
-            disabled={currentActionIndex === totalActions - 1}
-            className={`px-4 py-2 rounded ${
-              currentActionIndex === totalActions - 1
-                ? 'bg-gray-600 cursor-not-allowed'
-                : 'bg-blue-600 hover:bg-blue-700'
-            }`}
-          >
-            Next →
-          </button>
-        </div>
+
       </div>
     </div>
   );

@@ -311,39 +311,41 @@ export default function PokerGamePage({ searchParams }: PlayPageProps) {
       const personality = createAIPersonality(aiLevel);
       
       console.log(`AI personality: ${aiLevel}`);
-      
+      let timeoutId: any;
       // Get AI decision
-      const decision = makeAIDecision(aiPlayerState, gameStateForAI, personality);
-      console.log(`AI ${currentPlayer.name} decision:`, decision);
+      makeAIDecision(aiPlayerState, gameStateForAI, personality).then((decision) => {
+        console.log(`AI ${currentPlayer.name} decision:`, decision);
       
-      // Capture current player index to verify it hasn't changed
-      const playerIndexAtTimeOfDecision = currentPlayerIndex;
-      
-      // Execute the AI action with a short delay
-      const timeoutId = setTimeout(() => {
-        // Release the AI action flag when done
-        isAIActing.current = false;
+        // Capture current player index to verify it hasn't changed
+        const playerIndexAtTimeOfDecision = currentPlayerIndex;
         
-        // Final check to make sure game state is still valid and it's still this AI's turn
-        if (!isGameActive || currentPlayerIndex !== playerIndexAtTimeOfDecision) {
-          console.log("Game state changed, aborting AI action");
-          return;
-        }
+        // Execute the AI action with a short delay
+        timeoutId = setTimeout(() => {
+          // Release the AI action flag when done
+          isAIActing.current = false;
+          
+          // Final check to make sure game state is still valid and it's still this AI's turn
+          if (!isGameActive || currentPlayerIndex !== playerIndexAtTimeOfDecision) {
+            console.log("Game state changed, aborting AI action");
+            return;
+          }
+          
+          console.log(`Executing AI action: ${decision.action}`, decision.amount);
+          handlePlayerAction(decision.action, decision.reason || '', decision.amount);
+        }, AI_ACTION_DELAY);
         
-        console.log(`Executing AI action: ${decision.action}`, decision.amount);
-        handlePlayerAction(decision.action, decision.amount);
-      }, AI_ACTION_DELAY);
+      })
       
       // Cleanup function to cancel the timeout and reset flag if component unmounts or dependencies change
       return () => {
-        clearTimeout(timeoutId);
+        timeoutId && clearTimeout(timeoutId);
         isAIActing.current = false;
       };
     }
   }, [isGameActive, currentPlayerIndex, players, currentBet, pot, communityCards, gamePhase, playerContributions, userId]);
   
   // Modify handlePlayerAction to store actions
-  const handlePlayerAction = async (action: string, amount?: number) => {
+  const handlePlayerAction = async (action: string, reason: string, amount?: number) => {
     // Prevent actions if game is not active
     if (!isGameActive || !gameIdState) {
       console.log("Game not active, ignoring player action");
@@ -379,6 +381,7 @@ export default function PokerGamePage({ searchParams }: PlayPageProps) {
           actionType: action,
           amount,
           gameState,
+          reason
         }),
       });
 
@@ -862,12 +865,12 @@ export default function PokerGamePage({ searchParams }: PlayPageProps) {
   };
   
   // Handle user actions
-  const handleFold = () => handlePlayerAction('fold');
-  const handleCheck = () => handlePlayerAction('check');
-  const handleCall = (amount: number) => handlePlayerAction('call', amount);
-  const handleBet = (amount: number) => handlePlayerAction('bet', amount);
-  const handleRaise = (amount: number) => handlePlayerAction('raise', amount);
-  const handleAllIn = () => handlePlayerAction('all-in');
+  const handleFold = () => handlePlayerAction('fold', '');
+  const handleCheck = () => handlePlayerAction('check', '');
+  const handleCall = (amount: number) => handlePlayerAction('call', '', amount);
+  const handleBet = (amount: number) => handlePlayerAction('bet', '', amount);
+  const handleRaise = (amount: number) => handlePlayerAction('raise', '', amount);
+  const handleAllIn = () => handlePlayerAction('all-in', '');
   
   // Initialize game on first load
   useEffect(() => {
@@ -966,7 +969,7 @@ export default function PokerGamePage({ searchParams }: PlayPageProps) {
           bestHand={winnerInfo.bestHand}
           isUser={winnerInfo.isUser}
           onPlayAgain={startNewHand}
-          onReview={() => setIsReviewMode(true)}
+          onReview={() => console.log("do review")}
           isReviewMode={isReviewMode}
           gameId={gameIdState || undefined}
         />

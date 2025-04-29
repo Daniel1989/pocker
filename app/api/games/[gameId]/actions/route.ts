@@ -36,7 +36,7 @@ export async function POST(
 ) {
   try {
     const body = await request.json();
-    const { playerId, actionType, amount, gameState } = body;
+    const { playerId, actionType, amount, gameState, reason } = body;
 
     // First, ensure the GamePlayer exists
     let player = await prisma.gamePlayer.findFirst({
@@ -86,6 +86,7 @@ export async function POST(
         amount,
         gameState,
         sequenceNumber: newSequenceNumber,
+        actionReason: reason
       },
       include: {
         player: true,

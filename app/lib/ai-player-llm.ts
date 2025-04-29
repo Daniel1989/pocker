@@ -1,11 +1,6 @@
-import { OpenAI } from 'openai';
-import { evaluateHand } from './poker';
 import { getHandStrength } from './poker-probability';
 import { AILevel, GameState, makeAIDecision as makeAIDecisionFallback, PlayerState } from './ai-player';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 
 interface AIDecisionWithReason {
   action: string;
@@ -16,23 +11,23 @@ interface AIDecisionWithReason {
 // Evaluate pocket cards strength
 function evaluatePocketCards(cards: string[]): string {
   if (cards.length !== 2) return '无效的起手牌';
-  
+
   const card1 = cards[0];
   const card2 = cards[1];
   const value1 = card1[0];
   const value2 = card2[0];
   const suit1 = card1[1];
   const suit2 = card2[1];
-  
+
   // Pair
   if (value1 === value2) {
     return `对子 ${value1}`;
   }
-  
+
   // Suited cards
   const isSuited = suit1 === suit2;
   const suitedText = isSuited ? '同花' : '不同花';
-  
+
   return `${value1}${value2} ${suitedText}`;
 }
 
@@ -65,7 +60,7 @@ function determineBetSizeWithReason(
 ): { amount: number; reason: string } {
   let betRatio = 0.5;
   let reasons: string[] = [];
-  
+
   // Adjust based on hand strength
   if (handStrength > 0.8) {
     betRatio += 0.3;
@@ -77,7 +72,7 @@ function determineBetSizeWithReason(
     betRatio -= 0.2;
     reasons.push('手牌较弱，降低下注比例');
   }
-  
+
   // Adjust based on game phase
   if (phase === 'RIVER') {
     betRatio += 0.2;
@@ -86,13 +81,13 @@ function determineBetSizeWithReason(
     betRatio += 0.1;
     reasons.push('转牌圈，适度增加下注');
   }
-  
+
   // Calculate bet amount
   let betAmount = Math.floor(pot * betRatio);
   betAmount = Math.max(betAmount, 20); // Minimum bet
   betAmount = Math.min(betAmount, chips); // Can't bet more than we have
   betAmount = Math.floor(betAmount / 5) * 5; // Round to nearest 5
-  
+
   return {
     amount: betAmount,
     reason: `下注金额 ${betAmount} (${Math.round(betRatio * 100)}% 底池)。\n原因：${reasons.join('；')}`
@@ -107,13 +102,13 @@ export async function makeAIDecision(
   try {
     // 1. Evaluate hand strength
     const handStrength = getHandStrength(aiPlayer.cards || [], gameState.communityCards);
-    
+
     // 2. Evaluate pocket cards
     const pocketCardsEvaluation = evaluatePocketCards(aiPlayer.cards || []);
-    
+
     // 3. Get card values
     const cardValues = (aiPlayer.cards || []).map(card => getCardValueRankDescription(card[0]));
-    
+
     // Prepare game state description for OpenAI
     const prompt = `
 作为一个德州扑克AI玩家，请基于以下信息做出决策。必须以JSON格式返回，包含action和reason两个字段。
@@ -137,33 +132,40 @@ export async function makeAIDecision(
 }
 `;
 
-    // Get AI's analysis
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
-        {
-          role: "system",
-          content: "你是一个专业的德州扑克AI助手。你必须返回一个包含action和reason字段的JSON对象。Action必须是以下之一：FOLD, CHECK, CALL, RAISE, ALL_IN。"
-        },
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
-      temperature: 0.7,
-      max_tokens: 300,
-      response_format: { type: "json_object" }
-    });
 
-    let aiResponse: { action: string; reason: string };
     try {
-      const responseContent = completion.choices[0].message.content || '{}';
-      aiResponse = JSON.parse(responseContent);
-      
-      if (!aiResponse.action || !aiResponse.reason || 
-          !['FOLD', 'CHECK', 'CALL', 'RAISE', 'ALL_IN'].includes(aiResponse.action)) {
+      const res = await fetch('/api/ai/', {
+        method: 'POST',
+        body: JSON.stringify({ prompt })
+      });
+
+      const aiResponse = await res.json();
+
+      if (!aiResponse.action || !aiResponse.reason ||
+        !['FOLD', 'CHECK', 'CALL', 'RAISE', 'ALL_IN'].includes(aiResponse.action)) {
         throw new Error('Invalid AI response format');
       }
+      // Determine action and amount based on AI's decision
+      let amount: number | undefined;
+
+      if (aiResponse.action === 'RAISE') {
+        const betDecision = determineBetSizeWithReason(
+          aiPlayer.chips,
+          gameState.pot,
+          handStrength,
+          gameState.phase
+        );
+        amount = betDecision.amount;
+        aiResponse.reason += '\n' + betDecision.reason;
+      } else if (aiResponse.action === 'CALL') {
+        amount = gameState.currentBet - 0;
+      }
+
+      return {
+        action: aiResponse.action,
+        amount,
+        reason: aiResponse.reason
+      };
     } catch (error) {
       console.log('Failed to parse OpenAI response, using fallback AI');
       const fallbackDecision = makeAIDecisionFallback(aiPlayer, gameState, {
@@ -174,28 +176,6 @@ export async function makeAIDecision(
       });
       return { ...fallbackDecision, reason: '使用备用AI系统做出决策' };
     }
-
-    // Determine action and amount based on AI's decision
-    let amount: number | undefined;
-
-    if (aiResponse.action === 'RAISE') {
-      const betDecision = determineBetSizeWithReason(
-        aiPlayer.chips,
-        gameState.pot,
-        handStrength,
-        gameState.phase
-      );
-      amount = betDecision.amount;
-      aiResponse.reason += '\n' + betDecision.reason;
-    } else if (aiResponse.action === 'CALL') {
-      amount = gameState.currentBet - 0;
-    }
-
-    return {
-      action: aiResponse.action,
-      amount,
-      reason: aiResponse.reason
-    };
   } catch (error) {
     console.error('OpenAI decision error:', error);
     // Fallback to traditional AI

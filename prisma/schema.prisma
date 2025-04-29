@@ -43,10 +43,10 @@ model GameAction {
   player         GamePlayer @relation(fields: [playerId], references: [id])
   actionType     String     // fold, check, call, bet, raise, all-in
   amount         Int?       // amount for bet/raise/call
+  actionReason   String?    // reason for the action (nullable)
   timestamp      DateTime   @default(now())
   sequenceNumber Int        // to track action order
   gameState      Json       // snapshot of game state at this action
-  
   @@index([gameId])
   @@index([playerId])
 }
