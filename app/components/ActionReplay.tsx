@@ -153,8 +153,8 @@ const ActionReplay: React.FC<ActionReplayProps> = ({ gameId, onClose }) => {
   console.log("current", currentAction)
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-gray-800 p-8 rounded-lg shadow-xl max-w-4xl w-full text-white">
+    <div className="inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
+      <div className="bg-gray-800 p-8 pt-[200px] rounded-lg shadow-xl max-w-4xl w-full text-white">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold">Action Replay</h2>
           <div>

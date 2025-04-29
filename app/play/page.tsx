@@ -418,8 +418,30 @@ export default function PokerGamePage({ searchParams }: PlayPageProps) {
         }),
       });
 
+
       if (!response.ok) {
         throw new Error('Failed to store action');
+      }
+
+
+      if(reason === 'human') {
+        const actionData = await response.json();
+        const actionId = actionData.id;
+        await fetch(`/api/games/${gameIdState}/human`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            actionId: actionId,
+            actionType: action,
+            amount,
+            player: players[currentPlayerIndex],
+            communityCards: communityCards,
+            players: players,
+          }),
+        });
+
       }
 
       // Ensure we have the current player
@@ -898,12 +920,12 @@ export default function PokerGamePage({ searchParams }: PlayPageProps) {
   };
   
   // Handle user actions
-  const handleFold = () => handlePlayerAction('fold', '');
-  const handleCheck = () => handlePlayerAction('check', '');
-  const handleCall = (amount: number) => handlePlayerAction('call', '', amount);
-  const handleBet = (amount: number) => handlePlayerAction('bet', '', amount);
-  const handleRaise = (amount: number) => handlePlayerAction('raise', '', amount);
-  const handleAllIn = () => handlePlayerAction('all-in', '');
+  const handleFold = () => handlePlayerAction('fold', 'human');
+  const handleCheck = () => handlePlayerAction('check', 'human');
+  const handleCall = (amount: number) => handlePlayerAction('call', 'human', amount);
+  const handleBet = (amount: number) => handlePlayerAction('bet', 'human', amount);
+  const handleRaise = (amount: number) => handlePlayerAction('raise', 'human', amount);
+  const handleAllIn = () => handlePlayerAction('all-in', 'human');
   
   // Initialize game on first load
   useEffect(() => {

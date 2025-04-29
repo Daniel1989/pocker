@@ -103,7 +103,7 @@ export function getHandStrength(playerCards: string[], communityCards: string[])
       }
     })
     // 这个作为基准
-    game.addPlayer(["2d", "7s"])
+    game.addPlayer(baseCards as any)
     if (communityCards.length > 0) {
       const formattedCommunityCards = communityCards.map(convertCardFormat);
       game.setBoard(formattedCommunityCards);
