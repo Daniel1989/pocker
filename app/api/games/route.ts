@@ -4,6 +4,9 @@ import prisma from '@/lib/prisma';
 export async function GET() {
   try {
     const games = await prisma.game.findMany({
+      orderBy: {
+        createdAt: 'desc',
+      },
       include: {
         players: true,
         actions: {

@@ -33,13 +33,10 @@ export async function GET(
 // Create a new action
 export async function POST(
   request: Request,
-  { params }: { params: { gameId: string } }
 ) {
   try {
     const body = await request.json();
-    const { playerId, actionType, amount, gameState, reason } = body;
-    const url = new URL(request.url);
-    const gameId = url.searchParams.get('gameId');
+    const { playerId, actionType, amount, gameState, reason, gameId } = body;
     // First, ensure the GamePlayer exists
     let player = await prisma.gamePlayer.findFirst({
       where: {
@@ -86,7 +83,7 @@ export async function POST(
         gameId: gameId!,
         playerId: player.id, // Use the GamePlayer's ID
         actionType,
-        amount,
+        amount: amount/1,
         gameState,
         sequenceNumber: newSequenceNumber,
         actionReason: reason

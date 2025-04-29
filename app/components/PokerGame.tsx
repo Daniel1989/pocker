@@ -86,7 +86,7 @@ export function PokerGame({ gameId: initialGameId, isReviewMode }: PokerGameProp
 
   const loadGameHistory = async () => {
     try {
-      const response = await fetch(`/api/games/${gameId}`);
+      const response = await fetch(`/api/games/${gameId}?gameId=${gameId}`);
       const gameData = await response.json();
       
       // Set initial game state
@@ -179,7 +179,8 @@ export function PokerGame({ gameId: initialGameId, isReviewMode }: PokerGameProp
           playerId: currentPlayer.id,
           type: action,
           amount,
-          sequence: gameActions.length
+          sequence: gameActions.length,
+          gameId
         })
       });
 

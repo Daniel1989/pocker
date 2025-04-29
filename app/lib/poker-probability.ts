@@ -94,7 +94,16 @@ export function calculateWinProbability(
 export function getHandStrength(playerCards: string[], communityCards: string[]): number {
   try {
     const game = new TexasHoldem();
-    game.addPlayer(convertToHand(playerCards));
+    const convertedCards = convertToHand(playerCards)
+    game.addPlayer(convertedCards);
+    const baseCards: string[] = [];
+    (["2d", "2s", "2h", "2c", "7d", "7s", "7h", "7c"] as string[]).forEach((card: string) => {
+      if(!convertedCards.includes(card) && baseCards.length <2) {
+        baseCards.push(card)
+      }
+    })
+    // 这个作为基准
+    game.addPlayer(["2d", "7s"])
     if (communityCards.length > 0) {
       const formattedCommunityCards = communityCards.map(convertCardFormat);
       game.setBoard(formattedCommunityCards);

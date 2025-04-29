@@ -90,7 +90,7 @@ export default function PokerGamePage({ searchParams }: PlayPageProps) {
     if (isReviewMode && gameId) {
       const loadGameHistory = async () => {
         try {
-          const response = await fetch(`/api/games/${gameId}`);
+          const response = await fetch(`/api/games/${gameId}?gameId=${gameId}`);
           if (!response.ok) throw new Error('Failed to fetch game');
           const gameData = await response.json();
           
@@ -413,7 +413,8 @@ export default function PokerGamePage({ searchParams }: PlayPageProps) {
           actionType: action,
           amount,
           gameState,
-          reason
+          reason,
+          gameId: gameIdState
         }),
       });
 

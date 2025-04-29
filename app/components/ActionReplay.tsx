@@ -24,12 +24,14 @@ interface GameAction {
   playerId: string;
   player: {
     name: string;
+    playerId: string;
   };
   actionType: string;
   amount?: number;
   sequenceNumber: number;
   gameState: GameState;
   timestamp: string;
+  actionReason?: string
 }
 
 interface ActionReplayProps {
@@ -46,7 +48,7 @@ const ActionReplay: React.FC<ActionReplayProps> = ({ gameId, onClose }) => {
   useEffect(() => {
     const fetchActions = async () => {
       try {
-        const response = await fetch(`/api/games/${gameId}/actions`);
+        const response = await fetch(`/api/games/${gameId}/actions?gameId=${gameId}`);
         if (!response.ok) throw new Error('Failed to fetch actions');
         const data = await response.json();
         setActions(data);
@@ -148,51 +150,49 @@ const ActionReplay: React.FC<ActionReplayProps> = ({ gameId, onClose }) => {
     );
   }
 
+  console.log("current", currentAction)
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-gray-800 p-8 rounded-lg shadow-xl max-w-4xl w-full text-white">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold">Action Replay</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-white"
-          >
-            ✕
-          </button>
+          <div>
+            <button
+              onClick={goToPreviousAction}
+              disabled={currentActionIndex === 0}
+              className={`px-4 py-2 rounded mr-2 ${currentActionIndex === 0
+                ? 'bg-gray-600 cursor-not-allowed'
+                : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+            >
+              ← Previous
+            </button>
+            <button
+              onClick={goToNextAction}
+              disabled={currentActionIndex === totalActions - 1}
+              className={`px-4 py-2 rounded mr-2 ${currentActionIndex === totalActions - 1
+                ? 'bg-gray-600 cursor-not-allowed'
+                : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+            >
+              Next →
+            </button>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-white text-2xl"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         {currentAction && (
           <div className="mb-6">
-            <div className="flex justify-center gap-4">
-                <button
-                  onClick={goToPreviousAction}
-                  disabled={currentActionIndex === 0}
-                  className={`px-4 py-2 rounded ${currentActionIndex === 0
-                      ? 'bg-gray-600 cursor-not-allowed'
-                      : 'bg-blue-600 hover:bg-blue-700'
-                    }`}
-                >
-                  ← Previous
-                </button>
-                <button
-                  onClick={goToNextAction}
-                  disabled={currentActionIndex === totalActions - 1}
-                  className={`px-4 py-2 rounded ${currentActionIndex === totalActions - 1
-                      ? 'bg-gray-600 cursor-not-allowed'
-                      : 'bg-blue-600 hover:bg-blue-700'
-                    }`}
-                >
-                  Next →
-                </button>
-              </div>
             {/* Community Cards */}
             <div className="bg-gray-700 p-4 rounded-lg mb-4">
               <h3 className="text-lg font-semibold mb-2">Community Cards</h3>
               {renderCards(currentAction.gameState.communityCards)}
-            </div>
-
-            {/* Action Info */}
-            <div className="bg-gray-700 p-4 rounded-lg mb-4">
               <p className="text-lg mb-2">
                 Action {currentActionIndex + 1} of {totalActions}:
                 <span className="font-bold ml-2">
@@ -206,6 +206,7 @@ const ActionReplay: React.FC<ActionReplayProps> = ({ gameId, onClose }) => {
                 Current Bet: ${currentAction.gameState.currentBet}
               </p>
             </div>
+
 
             {/* Players Grid */}
             <div className="grid grid-cols-2 gap-4 mb-4">
@@ -226,27 +227,33 @@ const ActionReplay: React.FC<ActionReplayProps> = ({ gameId, onClose }) => {
                           : 'Active'}
                     </p>
                   </div>
-                  <div className="mb-2">
+                  {/* <div className="mb-2">
                     <p>Chips: ${player.chips}</p>
-                  </div>
+                  </div> */}
                   <div className="mb-2">
                     <p className="text-sm font-semibold mb-1">Hole Cards:</p>
                     {renderCards(player.cards)}
                   </div>
+                  <div className="mb-2">
+                    <p className="text-sm font-semibold mb-1">当前思考:</p>
+                    <p className="text-sm text-gray-300">
+                      {currentAction.player.playerId === player.id ? currentAction.actionReason : '非操作用户'}
+                    </p>
+                  </div>
                   {!player.folded && player.cards && player.cards.length > 0 && (
                     <>
-                      <div className="mb-2">
+                      {/* <div className="mb-2">
                         <p className="text-sm font-semibold">Current Hand:</p>
                         <p className="text-sm text-gray-300">
                           {getHandStrength(player.cards, currentAction.gameState.communityCards || [])}
                         </p>
-                      </div>
+                      </div> */}
                       <div>
                         <p className="text-sm font-semibold">Win Probability:</p>
                         <p className="text-sm">
                           <span className={`font-mono ${winProbabilities[player.id] > 50 ? 'text-green-400' :
-                              winProbabilities[player.id] > 25 ? 'text-yellow-400' :
-                                'text-red-400'
+                            winProbabilities[player.id] > 25 ? 'text-yellow-400' :
+                              'text-red-400'
                             }`}>
                             {winProbabilities[player.id]?.toFixed(1)}%
                           </span>

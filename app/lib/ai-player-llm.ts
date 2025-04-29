@@ -97,7 +97,8 @@ function determineBetSizeWithReason(
 export async function makeAIDecision(
   aiPlayer: PlayerState,
   gameState: GameState,
-  personality: any
+  personality: any,
+  gameId?: string
 ): Promise<AIDecisionWithReason> {
   try {
     // 1. Evaluate hand strength
@@ -128,7 +129,8 @@ export async function makeAIDecision(
 请分析形势并返回如下格式的JSON：
 {
   "action": "FOLD|CHECK|CALL|RAISE|ALL_IN",
-  "reason": "详细的中文分析理由"
+  "reason": "详细的中文分析理由",
+  "amount": "加注的金额"
 }
 `;
 
@@ -136,7 +138,14 @@ export async function makeAIDecision(
     try {
       const res = await fetch('/api/ai', {
         method: 'POST',
-        body: JSON.stringify({ prompt })
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          prompt,
+          gameId,
+          gameState
+        })
       });
 
       const aiResponse = await res.json();
@@ -149,16 +158,15 @@ export async function makeAIDecision(
       let amount: number | undefined;
 
       if (aiResponse.action === 'RAISE') {
-        const betDecision = determineBetSizeWithReason(
-          aiPlayer.chips,
-          gameState.pot,
-          handStrength,
-          gameState.phase
-        );
-        amount = betDecision.amount;
-        aiResponse.reason += '\n' + betDecision.reason;
+        // const betDecision = determineBetSizeWithReason(
+        //   aiPlayer.chips,
+        //   gameState.pot,
+        //   handStrength,
+        //   gameState.phase
+        // );
+        amount = aiResponse.amount;
       } else if (aiResponse.action === 'CALL') {
-        amount = gameState.currentBet - 0;
+        amount = gameState.currentBet - aiPlayer.totalBet;
       }
 
       return {
