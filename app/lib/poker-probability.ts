@@ -1,102 +1,80 @@
-import { Card, evaluateHand, generateDeck, determineWinner } from './poker';
+import { TexasHoldem } from 'poker-odds-calc';
+import { type Card } from './types';
+import { type PlayerState } from './types';
 
-interface PlayerSimState {
-  id: string;
-  cards: Card[];
-  folded: boolean;
-}
+// Convert our card format to poker-odds-calc format
+const convertCard = (card: Card): string => {
+  const rank = card.rank.toUpperCase();
+  const suit = card.suit.toLowerCase();
+  return `${rank}${suit}`;
+};
 
-const SIMULATION_COUNT = 1000;
-
-function shuffleArray<T>(array: T[]): T[] {
-  const shuffled = [...array];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+// Convert array of cards to poker-odds-calc format
+const convertCards = (cards: Card[]): [string, string] => {
+  if (cards.length !== 2) {
+    throw new Error('Player must have exactly 2 cards');
   }
-  return shuffled;
-}
+  return [convertCard(cards[0]), convertCard(cards[1])];
+};
 
-function getRemainingCards(usedCards: Card[]): Card[] {
-  const deck = generateDeck();
-  return deck.filter(card => !usedCards.includes(card));
-}
+const convertCommunityCards = (cards: Card[]): string[] => {
+  return cards.map(convertCard);
+};
 
-export function calculateWinProbability(
-  players: PlayerSimState[],
-  communityCards: Card[],
-  remainingCommunityCards: number
-): Record<string, number> {
-  // Get all active players (not folded)
-  const activePlayers = players.filter(p => !p.folded);
+export const calculateWinProbability = (
+  playerCards: Card[],
+  opponentCards: Card[],
+  communityCards: Card[] = []
+): number => {
+  const table = new TexasHoldem();
   
-  // If only one player remains, they have 100% chance
-  if (activePlayers.length === 1) {
-    const probabilities: Record<string, number> = {};
-    players.forEach(p => {
-      probabilities[p.id] = p.folded ? 0 : 100;
-    });
-    return probabilities;
+  table
+    .addPlayer(convertCards(playerCards))
+    .addPlayer(convertCards(opponentCards));
+
+  if (communityCards.length > 0) {
+    table.setBoard(convertCommunityCards(communityCards));
   }
 
-  // Collect all cards currently in play
-  const usedCards = [
-    ...(communityCards || []),
-    ...players.flatMap(p => p.cards || [])
-  ].filter(card => card !== null && card !== undefined);
+  const result = table.calculate();
+  const players = result.getPlayers();
+  return Number(players[0].getWinsPercentageString().replace('%', '')) / 100;
+};
 
-  // Get remaining cards that could be dealt
-  const remainingCards = getRemainingCards(usedCards);
-
-  // Track wins for each player
-  const wins: Record<string, number> = {};
-  players.forEach(p => wins[p.id] = 0);
-
-  // Run Monte Carlo simulation
-  for (let i = 0; i < SIMULATION_COUNT; i++) {
-    // Shuffle remaining cards
-    const shuffledRemaining = shuffleArray(remainingCards);
-    
-    // Deal remaining community cards for this simulation
-    const simulatedCommunityCards = [
-      ...(communityCards || []),
-      ...shuffledRemaining.slice(0, remainingCommunityCards)
-    ].filter(card => card !== null && card !== undefined);
-
-    // Determine winner for this simulation
-    const simPlayers = activePlayers.map(p => ({
-      userId: p.id,
-      cards: p.cards || [],
-      folded: false
-    }));
-
-    const winner = determineWinner(simPlayers, simulatedCommunityCards);
-    if (winner) {
-      wins[winner.winnerId]++;
-    }
+// Helper function to get hand strength
+export const getHandStrength = (
+  playerCards: Card[],
+  communityCards: Card[] = []
+): number => {
+  const table = new TexasHoldem();
+  table.addPlayer(convertCards(playerCards));
+  
+  if (communityCards.length > 0) {
+    table.setBoard(convertCommunityCards(communityCards));
   }
 
-  // Convert win counts to percentages
-  const probabilities: Record<string, number> = {};
-  players.forEach(p => {
-    probabilities[p.id] = p.folded ? 0 : (wins[p.id] / SIMULATION_COUNT) * 100;
-  });
+  const result = table.calculate();
+  const players = result.getPlayers();
+  return Number(players[0].getWinsPercentageString().replace('%', '')) / 100;
+};
 
-  return probabilities;
+// These functions are no longer needed as poker-odds-calc handles card management
+export function getRemainingCards(usedCards: string[]): string[] {
+  const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
+  const suits = ['h', 'd', 'c', 's'];
+  
+  const allCards = ranks.flatMap(rank => 
+    suits.map(suit => rank + suit)
+  );
+  
+  return allCards.filter(card => !usedCards.includes(card));
 }
 
-export function getHandStrength(playerCards: Card[], communityCards: Card[]): string {
-  if (!playerCards || !Array.isArray(playerCards) || playerCards.length === 0) {
-    return 'No hand';
+export function shuffleArray<T>(array: T[]): T[] {
+  const newArray = [...array];
+  for (let i = newArray.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
   }
-
-  const validPlayerCards = playerCards.filter(card => card !== null && card !== undefined);
-  const validCommunityCards = (communityCards || []).filter(card => card !== null && card !== undefined);
-
-  if (validPlayerCards.length === 0) {
-    return 'No hand';
-  }
-
-  const result = evaluateHand([...validPlayerCards, ...validCommunityCards]);
-  return result ? result.description : 'Incomplete hand';
+  return newArray;
 } 
