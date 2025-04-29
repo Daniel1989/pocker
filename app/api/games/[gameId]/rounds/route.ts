@@ -3,12 +3,13 @@ import prisma from '@/lib/prisma';
 
 export async function GET(
   request: Request,
-  { params }: { params: { gameId: string } }
 ) {
   try {
+    const url = new URL(request.url);
+    const gameId = url.searchParams.get('gameId');
     const game = await prisma.game.findUnique({
       where: {
-        id: params.gameId,
+        id: gameId!,
       },
       include: {
         actions: {

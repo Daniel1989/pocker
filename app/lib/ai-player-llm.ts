@@ -134,7 +134,7 @@ export async function makeAIDecision(
 
 
     try {
-      const res = await fetch('/api/ai/', {
+      const res = await fetch('/api/ai', {
         method: 'POST',
         body: JSON.stringify({ prompt })
       });

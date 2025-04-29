@@ -3,12 +3,13 @@ import prisma from '@/lib/prisma';
 
 export async function GET(
   request: Request,
-  { params }: { params: { gameId: string } }
 ) {
   try {
+    const url = new URL(request.url);
+    const gameId = url.searchParams.get('gameId');
     const game = await prisma.game.findUnique({
       where: {
-        id: params.gameId,
+        id: gameId!,
       },
       include: {
         players: true,
@@ -42,15 +43,15 @@ export async function GET(
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { gameId: string } }
 ) {
   try {
     const body = await request.json();
     const { status } = body;
-
+    const url = new URL(request.url);
+    const gameId = url.searchParams.get('gameId');
     const game = await prisma.game.update({
       where: {
-        id: params.gameId,
+        id: gameId!,
       },
       data: {
         status,
@@ -72,12 +73,13 @@ export async function PATCH(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { gameId: string } }
 ) {
   try {
+    const url = new URL(request.url);
+    const gameId = url.searchParams.get('gameId');
     await prisma.game.delete({
       where: {
-        id: params.gameId,
+        id: gameId!,
       },
     });
 

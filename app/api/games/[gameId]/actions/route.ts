@@ -4,12 +4,13 @@ import prisma from '@/lib/prisma';
 // Get all actions for a game
 export async function GET(
   request: Request,
-  { params }: { params: { gameId: string } }
 ) {
   try {
+    const url = new URL(request.url);
+    const gameId = url.searchParams.get('gameId');
     const actions = await prisma.gameAction.findMany({
       where: {
-        gameId: params.gameId,
+        gameId: gameId!,
       },
       include: {
         player: true,
@@ -37,12 +38,13 @@ export async function POST(
   try {
     const body = await request.json();
     const { playerId, actionType, amount, gameState, reason } = body;
-
+    const url = new URL(request.url);
+    const gameId = url.searchParams.get('gameId');
     // First, ensure the GamePlayer exists
     let player = await prisma.gamePlayer.findFirst({
       where: {
         AND: [
-          { gameId: params.gameId },
+          { gameId: gameId! },
           { playerId: playerId }
         ]
       }
@@ -58,9 +60,11 @@ export async function POST(
         );
       }
 
+      const url = new URL(request.url);
+      const gameId = url.searchParams.get('gameId');
       player = await prisma.gamePlayer.create({
         data: {
-          gameId: params.gameId,
+          gameId: gameId!,
           playerId: playerId,
           name: playerInfo.name,
           position: playerInfo.position || 0,
@@ -68,10 +72,9 @@ export async function POST(
         },
       });
     }
-
     // Get the latest sequence number for this game
     const latestAction = await prisma.gameAction.findFirst({
-      where: { gameId: params.gameId },
+      where: { gameId: gameId! },
       orderBy: { sequenceNumber: 'desc' },
     });
 
@@ -80,7 +83,7 @@ export async function POST(
     // Create the action with the confirmed player
     const action = await prisma.gameAction.create({
       data: {
-        gameId: params.gameId,
+        gameId: gameId!,
         playerId: player.id, // Use the GamePlayer's ID
         actionType,
         amount,

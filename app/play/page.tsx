@@ -55,7 +55,7 @@ interface PlayPageProps {
 }
 
 export default function PokerGamePage({ searchParams }: PlayPageProps) {
-  const { gameId, mode } = searchParams;
+  const { gameId, mode } = React.use(searchParams as any) as PlayPageProps['searchParams'];
   const isReviewMode = mode === 'review';
 
   // User info
