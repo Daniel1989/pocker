@@ -65,9 +65,13 @@ const PokerGamePage = () => {
   const [playerContributions, setPlayerContributions] = useState<Record<string, number>>({});
   const [gameLogs, setGameLogs] = useState<LogEntry[]>([]);
   const [isLogVisible, setIsLogVisible] = useState(true);
+  const [isReviewMode, setIsReviewMode] = useState(false);
   
   // Ref to track if an AI action is in progress to prevent multiple simultaneous AI actions
   const isAIActing = useRef(false);
+
+  // Add gameId state
+  const [gameId, setGameId] = useState<string | null>(null);
 
   // Initialize or reset the game
   const initializeGame = useCallback(() => {
@@ -116,108 +120,136 @@ const PokerGamePage = () => {
     setPlayerContributions(initialContributions);
   }, [userId, userName]);
   
-  // Start a new game
-  const startGame = () => {
+  // Modify startGame to create a new game in the database
+  const startGame = async () => {
     console.log("=== STARTING NEW GAME ===");
     
-    // Generate and shuffle deck
-    const newDeck = generateDeck();
-    console.log(`Generated new deck with ${newDeck.length} cards`);
-    
-    // Deal 2 cards to each player
-    const { playerCards, remainingDeck } = dealCards(players.length);
-    console.log(`Dealt cards to ${players.length} players, remaining deck: ${remainingDeck.length} cards`);
-    
-    // Make sure we're not in the middle of another game
-    if (isGameActive) {
-      console.log("Game is already active, not starting a new one");
+    try {
+      // Create a new game in the database
+      const response = await fetch('/api/games', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          players: players.map((player, index) => ({
+            playerId: player.id,
+            name: player.name,
+            position: index,
+            startingChips: STARTING_CHIPS,
+          })),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create game');
+      }
+
+      const game = await response.json();
+      setGameId(game.id);
+      
+      // Generate and shuffle deck
+      const newDeck = generateDeck();
+      console.log(`Generated new deck with ${newDeck.length} cards`);
+      
+      // Deal 2 cards to each player
+      const { playerCards, remainingDeck } = dealCards(players.length);
+      console.log(`Dealt cards to ${players.length} players, remaining deck: ${remainingDeck.length} cards`);
+      
+      // Make sure we're not in the middle of another game
+      if (isGameActive) {
+        console.log("Game is already active, not starting a new one");
+        return;
+      }
+      
+      // Update players with their cards
+      const updatedPlayers = players.map((player, index) => ({
+        ...player,
+        cards: playerCards[index],
+        folded: false,
+        lastAction: undefined, // Reset last action
+      }));
+      
+      // Calculate positions
+      const smallBlindPos = (dealerIndex + 1) % players.length;
+      const bigBlindPos = (dealerIndex + 2) % players.length;
+      console.log(`Dealer: ${players[dealerIndex].name}, Small Blind: ${players[smallBlindPos].name}, Big Blind: ${players[bigBlindPos].name}`);
+      
+      // Collect blinds
+      const newPot = BLINDS.small + BLINDS.big;
+      
+      // Update player chips and contributions
+      const newPlayers = updatedPlayers.map((player, index) => {
+        if (index === smallBlindPos) {
+          return {
+            ...player,
+            chips: player.chips - BLINDS.small,
+            lastAction: `Small Blind (${BLINDS.small})`,
+          };
+        }
+        if (index === bigBlindPos) {
+          return {
+            ...player,
+            chips: player.chips - BLINDS.big,
+            lastAction: `Big Blind (${BLINDS.big})`,
+          };
+        }
+        return player;
+      });
+      
+      // Update player contributions
+      const newContributions: Record<string, number> = {};
+      newPlayers.forEach(player => {
+        newContributions[player.id] = 0;
+      });
+      newContributions[newPlayers[smallBlindPos].id] = BLINDS.small;
+      newContributions[newPlayers[bigBlindPos].id] = BLINDS.big;
+      
+      // First player to act is after the big blind
+      const firstToAct = (bigBlindPos + 1) % players.length;
+      console.log(`First to act: ${newPlayers[firstToAct].name} (index: ${firstToAct})`);
+      
+      // Create empty community cards array
+      const emptyCommCards: Card[] = [];
+      
+      // Add logs for blinds
+      const newLogs: LogEntry[] = [
+        {
+          playerId: newPlayers[smallBlindPos].id,
+          playerName: newPlayers[smallBlindPos].name,
+          action: 'posted small blind',
+          amount: BLINDS.small,
+          timestamp: Date.now()
+        },
+        {
+          playerId: newPlayers[bigBlindPos].id,
+          playerName: newPlayers[bigBlindPos].name,
+          action: 'posted big blind',
+          amount: BLINDS.big,
+          timestamp: Date.now()
+        }
+      ];
+      
+      console.log(`Setting up the game state...`);
+      
+      // Update all state in one batch to avoid race conditions
+      setDeck(remainingDeck);
+      setPlayers(newPlayers);
+      setPot(newPot);
+      setCurrentBet(BLINDS.big);
+      setCurrentPlayerIndex(firstToAct);
+      setGamePhase(PHASES[0]); // PREFLOP
+      setPlayerContributions(newContributions);
+      setCommunityCards(emptyCommCards);
+      setGameLogs(newLogs);
+      // Set game active last - this will trigger the useEffect that handles AI actions
+      setIsGameActive(true);
+      
+      console.log(`Game state updated. Starting the game with ${newPlayers.length} players.`);
+    } catch (error) {
+      console.error('Failed to start game:', error);
       return;
     }
-    
-    // Update players with their cards
-    const updatedPlayers = players.map((player, index) => ({
-      ...player,
-      cards: playerCards[index],
-      folded: false,
-      lastAction: undefined, // Reset last action
-    }));
-    
-    // Calculate positions
-    const smallBlindPos = (dealerIndex + 1) % players.length;
-    const bigBlindPos = (dealerIndex + 2) % players.length;
-    console.log(`Dealer: ${players[dealerIndex].name}, Small Blind: ${players[smallBlindPos].name}, Big Blind: ${players[bigBlindPos].name}`);
-    
-    // Collect blinds
-    const newPot = BLINDS.small + BLINDS.big;
-    
-    // Update player chips and contributions
-    const newPlayers = updatedPlayers.map((player, index) => {
-      if (index === smallBlindPos) {
-        return {
-          ...player,
-          chips: player.chips - BLINDS.small,
-          lastAction: `Small Blind (${BLINDS.small})`,
-        };
-      }
-      if (index === bigBlindPos) {
-        return {
-          ...player,
-          chips: player.chips - BLINDS.big,
-          lastAction: `Big Blind (${BLINDS.big})`,
-        };
-      }
-      return player;
-    });
-    
-    // Update player contributions
-    const newContributions: Record<string, number> = {};
-    newPlayers.forEach(player => {
-      newContributions[player.id] = 0;
-    });
-    newContributions[newPlayers[smallBlindPos].id] = BLINDS.small;
-    newContributions[newPlayers[bigBlindPos].id] = BLINDS.big;
-    
-    // First player to act is after the big blind
-    const firstToAct = (bigBlindPos + 1) % players.length;
-    console.log(`First to act: ${newPlayers[firstToAct].name} (index: ${firstToAct})`);
-    
-    // Create empty community cards array
-    const emptyCommCards: Card[] = [];
-    
-    // Add logs for blinds
-    const newLogs: LogEntry[] = [
-      {
-        playerId: newPlayers[smallBlindPos].id,
-        playerName: newPlayers[smallBlindPos].name,
-        action: 'posted small blind',
-        amount: BLINDS.small,
-        timestamp: Date.now()
-      },
-      {
-        playerId: newPlayers[bigBlindPos].id,
-        playerName: newPlayers[bigBlindPos].name,
-        action: 'posted big blind',
-        amount: BLINDS.big,
-        timestamp: Date.now()
-      }
-    ];
-    
-    console.log(`Setting up the game state...`);
-    
-    // Update all state in one batch to avoid race conditions
-    setDeck(remainingDeck);
-    setPlayers(newPlayers);
-    setPot(newPot);
-    setCurrentBet(BLINDS.big);
-    setCurrentPlayerIndex(firstToAct);
-    setGamePhase(PHASES[0]); // PREFLOP
-    setPlayerContributions(newContributions);
-    setCommunityCards(emptyCommCards);
-    setGameLogs(newLogs);
-    // Set game active last - this will trigger the useEffect that handles AI actions
-    setIsGameActive(true);
-    
-    console.log(`Game state updated. Starting the game with ${newPlayers.length} players.`);
   };
   
   // Handle AI actions when game state changes
@@ -300,198 +332,249 @@ const PokerGamePage = () => {
     }
   }, [isGameActive, currentPlayerIndex, players, currentBet, pot, communityCards, gamePhase, playerContributions, userId]);
   
-  // Handle player action
-  const handlePlayerAction = (action: string, amount?: number) => {
+  // Modify handlePlayerAction to store actions
+  const handlePlayerAction = async (action: string, amount?: number) => {
     // Prevent actions if game is not active
-    if (!isGameActive) {
+    if (!isGameActive || !gameId) {
       console.log("Game not active, ignoring player action");
       return;
     }
 
-    // Ensure we have the current player
-    if (currentPlayerIndex === undefined || currentPlayerIndex < 0) {
-      console.error("No current player defined");
-      return;
-    }
+    // Create a snapshot of the current game state
+    const gameState = {
+      players: players.map(player => ({
+        id: player.id,
+        name: player.name,
+        chips: player.chips,
+        cards: player.cards,
+        folded: player.folded,
+        isAI: player.isAI,
+      })),
+      communityCards,
+      pot,
+      currentBet,
+      dealerIndex,
+      gamePhase,
+    };
 
-    const player = players[currentPlayerIndex];
-    console.log(`🎮 Player ${player.name} (${currentPlayerIndex}) action: ${action} ${amount !== undefined ? amount : ''}`);
-
-    // Create a copy of players array to modify
-    const newPlayers = [...players];
-    const newContributions = { ...playerContributions };
-
-    // Handle action
-    let newPot = pot;
-    let newCurrentBet = currentBet;
-    let newLogs = [...gameLogs];
-
-    if (action === 'fold') {
-      // Player folds
-      newPlayers[currentPlayerIndex] = {
-        ...player,
-        folded: true,
-        lastAction: 'Folded'
-      };
-      
-      newLogs.push({
-        playerId: player.id,
-        playerName: player.name,
-        action: 'folded',
-        timestamp: Date.now()
+    try {
+      // Store the action in the database
+      const response = await fetch(`/api/games/${gameId}/actions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          playerId: players[currentPlayerIndex].id,
+          actionType: action,
+          amount,
+          gameState,
+        }),
       });
-    } else if (action === 'check') {
-      // Player checks
-      newPlayers[currentPlayerIndex] = {
-        ...player,
-        lastAction: 'Checked'
-      };
-      
-      newLogs.push({
-        playerId: player.id,
-        playerName: player.name,
-        action: 'checked',
-        timestamp: Date.now()
-      });
-    } else if (action === 'call') {
-      // Calculate call amount (difference between current bet and player's contribution)
-      const callAmount = currentBet - (playerContributions[player.id] || 0);
-      
-      if (callAmount <= 0) {
-        console.error("Invalid call: Player has already contributed enough");
+
+      if (!response.ok) {
+        throw new Error('Failed to store action');
+      }
+
+      // Ensure we have the current player
+      if (currentPlayerIndex === undefined || currentPlayerIndex < 0) {
+        console.error("No current player defined");
         return;
       }
-      
-      // Ensure player has enough chips
-      if (player.chips < callAmount) {
-        console.error("Player doesn't have enough chips to call");
-        return;
-      }
-      
-      // Update player chips and pot
-      newPlayers[currentPlayerIndex] = {
-        ...player,
-        chips: player.chips - callAmount,
-        lastAction: `Called ${callAmount}`
-      };
-      
-      newPot += callAmount;
-      newContributions[player.id] = (newContributions[player.id] || 0) + callAmount;
-      
-      newLogs.push({
-        playerId: player.id,
-        playerName: player.name,
-        action: 'called',
-        amount: callAmount,
-        timestamp: Date.now()
-      });
-    } else if (action === 'bet' || action === 'raise') {
-      // Handle bet/raise (they're similar)
-      if (!amount || amount <= 0) {
-        console.error("Invalid bet/raise amount");
-        return;
-      }
-      
-      // Calculate total amount player needs to put in
-      const currentContribution = playerContributions[player.id] || 0;
-      let totalNeeded: number;
-      
-      if (action === 'bet') {
-        // For a bet, player needs to put in the bet amount
-        totalNeeded = amount;
+
+      // Normalize action to lowercase to handle case sensitivity issues
+      const normalizedAction = action.toLowerCase();
+
+      const player = players[currentPlayerIndex];
+      console.log(`🎮 Player ${player.name} (${currentPlayerIndex}) action: ${normalizedAction} ${amount !== undefined ? amount : ''}`);
+
+      // Create a copy of players array to modify
+      const newPlayers = [...players];
+      const newContributions = { ...playerContributions };
+
+      // Handle action
+      let newPot = pot;
+      let newCurrentBet = currentBet;
+      let newLogs = [...gameLogs];
+
+      if (normalizedAction === 'fold') {
+        // Player folds
+        newPlayers[currentPlayerIndex] = {
+          ...player,
+          folded: true,
+          lastAction: 'Folded'
+        };
         
-        // Can only bet if no current bet exists
-        if (currentBet > 0 && gamePhase !== PHASES[0]) {
-          console.error("Can't bet when there's already a bet; must raise instead");
+        newLogs.push({
+          playerId: player.id,
+          playerName: player.name,
+          action: 'folded',
+          timestamp: Date.now()
+        });
+      } else if (normalizedAction === 'check') {
+        // Player checks
+        newPlayers[currentPlayerIndex] = {
+          ...player,
+          lastAction: 'Checked'
+        };
+        
+        newLogs.push({
+          playerId: player.id,
+          playerName: player.name,
+          action: 'checked',
+          timestamp: Date.now()
+        });
+      } else if (normalizedAction === 'call') {
+        // Calculate call amount (difference between current bet and player's contribution)
+        const callAmount = currentBet - (playerContributions[player.id] || 0);
+        
+        // Remove the validation that was causing the error
+        // A call should always be valid if there's a bet to call
+        if (currentBet === 0) {
+          console.error("Invalid call: No bet to call");
           return;
         }
-      } else {
-        // For a raise, player needs to put in current bet + raise amount
-        totalNeeded = currentBet + amount;
+        
+        // Ensure player has enough chips
+        if (player.chips < callAmount) {
+          console.error("Player doesn't have enough chips to call");
+          return;
+        }
+        
+        // Update player chips and pot
+        newPlayers[currentPlayerIndex] = {
+          ...player,
+          chips: player.chips - callAmount,
+          lastAction: `Called ${currentBet}`  // Show the total bet amount being called, not just the difference
+        };
+        
+        newPot += callAmount;
+        newContributions[player.id] = currentBet;  // Set contribution to match current bet exactly
+        
+        newLogs.push({
+          playerId: player.id,
+          playerName: player.name,
+          action: 'called',
+          amount: currentBet,  // Log the total bet being called
+          timestamp: Date.now()
+        });
+      } else if (normalizedAction === 'bet' || normalizedAction === 'raise') {
+        // Handle bet/raise (they're similar)
+        if (!amount || amount <= 0) {
+          console.error("Invalid bet/raise amount");
+          return;
+        }
+        
+        // Calculate total amount player needs to put in
+        const currentContribution = playerContributions[player.id] || 0;
+        let totalNeeded: number;
+        
+        if (normalizedAction === 'bet') {
+          // For a bet, player needs to put in the bet amount
+          totalNeeded = amount;
+          
+          // Can only bet if no current bet exists
+          if (currentBet > 0 && gamePhase !== PHASES[0]) {
+            console.error("Can't bet when there's already a bet; must raise instead");
+            return;
+          }
+        } else {
+          // For a raise, player needs to put in current bet + raise amount
+          totalNeeded = amount; // amount is now the total bet, not just the raise increment
+        }
+        
+        // Calculate how much more the player needs to add
+        const additionalAmount = totalNeeded - currentContribution;
+        
+        // Ensure player has enough chips
+        if (player.chips < additionalAmount) {
+          console.error("Player doesn't have enough chips for this action");
+          return;
+        }
+        
+        // Validate minimum raise amount
+        if (normalizedAction === 'raise' && totalNeeded <= currentBet) {
+          console.error("Raise amount must be greater than current bet");
+          return;
+        }
+        
+        // Update player chips, bet, and pot
+        newPlayers[currentPlayerIndex] = {
+          ...player,
+          chips: player.chips - additionalAmount,
+          lastAction: `${normalizedAction === 'bet' ? 'Bet' : 'Raised to'} ${totalNeeded}`
+        };
+        
+        newCurrentBet = totalNeeded;
+        newPot += additionalAmount;
+        newContributions[player.id] = totalNeeded; // Set total contribution to the new bet amount
+        
+        // Log the action
+        newLogs.push({
+          playerId: player.id,
+          playerName: player.name,
+          action: normalizedAction === 'bet' ? 'bet' : 'raised to',
+          amount: totalNeeded,
+          timestamp: Date.now()
+        });
+      } else if (normalizedAction === 'all-in' || normalizedAction === 'all_in') {
+        // Player goes all-in
+        const allInAmount = player.chips;
+        
+        if (allInAmount <= 0) {
+          console.error("Player has no chips to go all-in");
+          return;
+        }
+        
+        // Update current bet if all-in amount is higher
+        const totalContribution = (playerContributions[player.id] || 0) + allInAmount;
+        if (totalContribution > newCurrentBet) {
+          newCurrentBet = totalContribution;
+        }
+        
+        // Update player chips, pot, and contributions
+        newPlayers[currentPlayerIndex] = {
+          ...player,
+          chips: 0,
+          lastAction: `All-in (${allInAmount})`
+        };
+        
+        newPot += allInAmount;
+        newContributions[player.id] = (newContributions[player.id] || 0) + allInAmount;
+        
+        newLogs.push({
+          playerId: player.id,
+          playerName: player.name,
+          action: 'went all-in',
+          amount: allInAmount,
+          timestamp: Date.now()
+        });
       }
       
-      // Calculate how much more the player needs to add
-      const additionalAmount = totalNeeded - currentContribution;
+      // Update state
+      setPlayers(newPlayers);
+      setPot(newPot);
+      setCurrentBet(newCurrentBet);
+      setPlayerContributions(newContributions);
+      setGameLogs(newLogs);
       
-      // Ensure player has enough chips
-      if (player.chips < additionalAmount) {
-        console.error("Player doesn't have enough chips for this action");
+      console.log(`After action: pot=${newPot}, currentBet=${newCurrentBet}`);
+      console.log("Player contributions:", newContributions);
+      
+      // Check if hand is over (only one player left)
+      const activePlayers = newPlayers.filter(p => !p.folded);
+      if (activePlayers.length === 1) {
+        console.log("Only one player left! Ending hand...");
+        endHand(newPlayers, activePlayers[0]);
         return;
       }
       
-      // Update player chips, bet, and pot
-      newPlayers[currentPlayerIndex] = {
-        ...player,
-        chips: player.chips - additionalAmount,
-        lastAction: `${action === 'bet' ? 'Bet' : 'Raised to'} ${totalNeeded}`
-      };
-      
-      newCurrentBet = totalNeeded;
-      newPot += additionalAmount;
-      newContributions[player.id] = (newContributions[player.id] || 0) + additionalAmount;
-      
-      // Log the action
-      newLogs.push({
-        playerId: player.id,
-        playerName: player.name,
-        action: action === 'bet' ? 'bet' : 'raised to',
-        amount: totalNeeded,
-        timestamp: Date.now()
-      });
-    } else if (action === 'all-in') {
-      // Player goes all-in
-      const allInAmount = player.chips;
-      
-      if (allInAmount <= 0) {
-        console.error("Player has no chips to go all-in");
-        return;
-      }
-      
-      // Update current bet if all-in amount is higher
-      const totalContribution = (playerContributions[player.id] || 0) + allInAmount;
-      if (totalContribution > newCurrentBet) {
-        newCurrentBet = totalContribution;
-      }
-      
-      // Update player chips, pot, and contributions
-      newPlayers[currentPlayerIndex] = {
-        ...player,
-        chips: 0,
-        lastAction: `All-in (${allInAmount})`
-      };
-      
-      newPot += allInAmount;
-      newContributions[player.id] = (newContributions[player.id] || 0) + allInAmount;
-      
-      newLogs.push({
-        playerId: player.id,
-        playerName: player.name,
-        action: 'went all-in',
-        amount: allInAmount,
-        timestamp: Date.now()
-      });
+      // Move to the next player or phase
+      moveToNextPlayerOrPhase(newPlayers, newContributions, newCurrentBet);
+    } catch (error) {
+      console.error('Failed to store action:', error);
+      // Continue with the game even if storing the action fails
     }
-    
-    // Update state
-    setPlayers(newPlayers);
-    setPot(newPot);
-    setCurrentBet(newCurrentBet);
-    setPlayerContributions(newContributions);
-    setGameLogs(newLogs);
-    
-    console.log(`After action: pot=${newPot}, currentBet=${newCurrentBet}`);
-    console.log("Player contributions:", newContributions);
-    
-    // Check if hand is over (only one player left)
-    const activePlayers = newPlayers.filter(p => !p.folded);
-    if (activePlayers.length === 1) {
-      console.log("Only one player left! Ending hand...");
-      endHand(newPlayers, activePlayers[0]);
-      return;
-    }
-    
-    // Move to the next player or phase
-    moveToNextPlayerOrPhase(newPlayers, newContributions, newCurrentBet);
   };
   
   // Move to next player or phase
@@ -605,7 +688,8 @@ const PokerGamePage = () => {
   // End the hand and determine the winner
   const endHand = (finalPlayers: PlayerInfo[], forcedWinner?: PlayerInfo) => {
     console.log("Ending hand and determining winner");
-    
+    setShowdown(true); // Show all cards in showdown
+
     if (forcedWinner) {
       // If only one player remains, they win automatically
       const winnings = pot;
@@ -707,6 +791,9 @@ const PokerGamePage = () => {
   
   // Start a new hand
   const startNewHand = () => {
+    setIsReviewMode(false);
+    setShowdown(false);
+    
     // Rotate dealer position
     const newDealerIndex = (dealerIndex + 1) % players.length;
     setDealerIndex(newDealerIndex);
@@ -726,7 +813,6 @@ const PokerGamePage = () => {
     setCurrentBet(0);
     setGamePhase('');
     setIsGameActive(false);
-    setShowdown(false);
     setWinnerInfo(null);
     
     // If any player is out of chips, they're removed from the game
@@ -746,12 +832,12 @@ const PokerGamePage = () => {
   };
   
   // Handle user actions
-  const handleFold = () => handlePlayerAction('FOLD');
-  const handleCheck = () => handlePlayerAction('CHECK');
-  const handleCall = (amount: number) => handlePlayerAction('CALL', amount);
-  const handleBet = (amount: number) => handlePlayerAction('BET', amount);
-  const handleRaise = (amount: number) => handlePlayerAction('RAISE', amount);
-  const handleAllIn = () => handlePlayerAction('ALL_IN');
+  const handleFold = () => handlePlayerAction('fold');
+  const handleCheck = () => handlePlayerAction('check');
+  const handleCall = (amount: number) => handlePlayerAction('call', amount);
+  const handleBet = (amount: number) => handlePlayerAction('bet', amount);
+  const handleRaise = (amount: number) => handlePlayerAction('raise', amount);
+  const handleAllIn = () => handlePlayerAction('all-in');
   
   // Initialize game on first load
   useEffect(() => {
@@ -804,7 +890,7 @@ const PokerGamePage = () => {
             dealerIndex={dealerIndex}
             gamePhase={gamePhase}
             userId={userId}
-            showdown={showdown}
+            showdown={showdown || isReviewMode}
           />
           
           {isGameActive && userPlayer && isUserTurn && (
@@ -850,6 +936,9 @@ const PokerGamePage = () => {
           bestHand={winnerInfo.bestHand}
           isUser={winnerInfo.isUser}
           onPlayAgain={startNewHand}
+          onReview={() => setIsReviewMode(true)}
+          isReviewMode={isReviewMode}
+          gameId={gameId || undefined}
         />
       )}
     </div>

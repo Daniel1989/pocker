@@ -8,7 +8,7 @@ export const VALUES = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K
 
 export type Suit = typeof SUITS[number];
 export type Value = typeof VALUES[number];
-export type Card = `${Value}${Suit}`;
+export type Card = string; // e.g. "AH", "2C", etc.
 
 // Hand rankings
 export enum HandRank {
@@ -95,52 +95,281 @@ export function dealCommunityCards(deck: Card[], count: number): {
   };
 }
 
-// Card parsing and value extraction
-function parseCard(card: Card): { value: Value, suit: Suit } {
-  const value = card[0] as Value;
-  const suit = card[1] as Suit;
-  return { value, suit };
+interface ParsedCard {
+  value: number;
+  suit: string;
+  originalCard: Card;
 }
 
-function getCardValue(value: Value): number {
-  const valueMap: Record<Value, number> = {
-    '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
-    '9': 9, 'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14
+interface HandResult {
+  rank: number;
+  description: string;
+  bestHand: Card[];
+}
+
+function parseCard(card: Card): ParsedCard {
+  const value = card.charAt(0);
+  const suit = card.charAt(1);
+  return {
+    value: getCardValue(value),
+    suit,
+    originalCard: card
   };
-  return valueMap[value];
 }
 
-// Hand evaluation
-export function evaluateHand(playerCards: Card[], communityCards: Card[]): {
-  rank: HandRank,
-  description: string,
-  bestHand: Card[]
-} {
-  const allCards = [...playerCards, ...communityCards];
-  
-  // Convert cards to value-suit pairs and sort by value (descending)
-  const parsedCards = allCards.map(parseCard)
-    .sort((a, b) => getCardValue(b.value) - getCardValue(a.value));
-  
-  // Get all possible 5-card combinations
-  const combinations = getCombinations(allCards, 5);
-  
-  let bestRank = HandRank.HighCard;
-  let bestHand: Card[] = combinations[0];
-  
-  // Evaluate each combination
-  for (const hand of combinations) {
-    const result = evaluateSingleHand(hand);
-    if (result.rank > bestRank) {
-      bestRank = result.rank;
-      bestHand = hand;
+function getCardValue(value: string): number {
+  switch (value) {
+    case 'A': return 14;
+    case 'K': return 13;
+    case 'Q': return 12;
+    case 'J': return 11;
+    case 'T': return 10;
+    default: return parseInt(value);
+  }
+}
+
+function getCardRankName(value: number): string {
+  switch (value) {
+    case 14: return 'Ace';
+    case 13: return 'King';
+    case 12: return 'Queen';
+    case 11: return 'Jack';
+    default: return value.toString();
+  }
+}
+
+function checkRoyalFlush(cards: ParsedCard[]): Card[] | null {
+  const straightFlush = checkStraightFlush(cards);
+  if (straightFlush && cards[0].value === 14) {
+    return straightFlush;
+  }
+  return null;
+}
+
+function checkStraightFlush(cards: ParsedCard[]): Card[] | null {
+  // Group cards by suit
+  const suits = new Map<string, ParsedCard[]>();
+  cards.forEach(card => {
+    if (!suits.has(card.suit)) {
+      suits.set(card.suit, []);
+    }
+    suits.get(card.suit)!.push(card);
+  });
+
+  // Check each suit group for a straight
+  for (const [_, suitCards] of suits) {
+    if (suitCards.length >= 5) {
+      const straight = checkStraight(suitCards);
+      if (straight) {
+        return straight;
+      }
     }
   }
+  return null;
+}
+
+function checkFourOfAKind(cards: ParsedCard[]): Card[] | null {
+  for (let i = 0; i <= cards.length - 4; i++) {
+    if (cards[i].value === cards[i + 1].value &&
+        cards[i].value === cards[i + 2].value &&
+        cards[i].value === cards[i + 3].value) {
+      // Found four of a kind, add highest remaining card as kicker
+      const kicker = cards.find(c => c.value !== cards[i].value);
+      if (kicker) {
+        return [
+          cards[i].originalCard,
+          cards[i + 1].originalCard,
+          cards[i + 2].originalCard,
+          cards[i + 3].originalCard,
+          kicker.originalCard
+        ];
+      }
+    }
+  }
+  return null;
+}
+
+function checkFullHouse(cards: ParsedCard[]): Card[] | null {
+  const three = checkThreeOfAKind(cards);
+  if (!three) return null;
+
+  const threeValue = getCardValue(three[0].charAt(0));
+  const remainingCards = cards.filter(c => c.value !== threeValue);
   
+  // Look for highest pair in remaining cards
+  for (let i = 0; i < remainingCards.length - 1; i++) {
+    if (remainingCards[i].value === remainingCards[i + 1].value) {
+      return [
+        ...three.slice(0, 3),
+        remainingCards[i].originalCard,
+        remainingCards[i + 1].originalCard
+      ];
+    }
+  }
+  return null;
+}
+
+function checkFlush(cards: ParsedCard[]): Card[] | null {
+  const suits = new Map<string, ParsedCard[]>();
+  cards.forEach(card => {
+    if (!suits.has(card.suit)) {
+      suits.set(card.suit, []);
+    }
+    suits.get(card.suit)!.push(card);
+  });
+
+  for (const [_, suitCards] of suits) {
+    if (suitCards.length >= 5) {
+      return suitCards.slice(0, 5).map(c => c.originalCard);
+    }
+  }
+  return null;
+}
+
+function checkStraight(cards: ParsedCard[]): Card[] | null {
+  // Handle Ace-low straight specially
+  if (cards[0].value === 14) {
+    const aceLowCards = [...cards.slice(1), { ...cards[0], value: 1 }];
+    aceLowCards.sort((a, b) => b.value - a.value);
+    const aceLowStraight = checkStraightNormal(aceLowCards);
+    if (aceLowStraight) return aceLowStraight;
+  }
+  return checkStraightNormal(cards);
+}
+
+function checkStraightNormal(cards: ParsedCard[]): Card[] | null {
+  for (let i = 0; i <= cards.length - 5; i++) {
+    if (cards[i].value === cards[i + 1].value + 1 &&
+        cards[i + 1].value === cards[i + 2].value + 1 &&
+        cards[i + 2].value === cards[i + 3].value + 1 &&
+        cards[i + 3].value === cards[i + 4].value + 1) {
+      return [
+        cards[i].originalCard,
+        cards[i + 1].originalCard,
+        cards[i + 2].originalCard,
+        cards[i + 3].originalCard,
+        cards[i + 4].originalCard
+      ];
+    }
+  }
+  return null;
+}
+
+function checkThreeOfAKind(cards: ParsedCard[]): Card[] | null {
+  for (let i = 0; i <= cards.length - 3; i++) {
+    if (cards[i].value === cards[i + 1].value &&
+        cards[i].value === cards[i + 2].value) {
+      // Found three of a kind, add two highest remaining cards as kickers
+      const kickers = cards.filter(c => c.value !== cards[i].value).slice(0, 2);
+      if (kickers.length === 2) {
+        return [
+          cards[i].originalCard,
+          cards[i + 1].originalCard,
+          cards[i + 2].originalCard,
+          kickers[0].originalCard,
+          kickers[1].originalCard
+        ];
+      }
+    }
+  }
+  return null;
+}
+
+function checkTwoPair(cards: ParsedCard[]): Card[] | null {
+  for (let i = 0; i <= cards.length - 2; i++) {
+    if (cards[i].value === cards[i + 1].value) {
+      // Found first pair, look for second pair
+      const remainingCards = cards.filter(c => c.value !== cards[i].value);
+      for (let j = 0; j <= remainingCards.length - 2; j++) {
+        if (remainingCards[j].value === remainingCards[j + 1].value) {
+          // Found second pair, add highest remaining card as kicker
+          const kicker = cards.find(c => 
+            c.value !== cards[i].value && 
+            c.value !== remainingCards[j].value
+          );
+          if (kicker) {
+            return [
+              cards[i].originalCard,
+              cards[i + 1].originalCard,
+              remainingCards[j].originalCard,
+              remainingCards[j + 1].originalCard,
+              kicker.originalCard
+            ];
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function checkOnePair(cards: ParsedCard[]): Card[] | null {
+  for (let i = 0; i <= cards.length - 2; i++) {
+    if (cards[i].value === cards[i + 1].value) {
+      // Found pair, add three highest remaining cards as kickers
+      const kickers = cards.filter(c => c.value !== cards[i].value).slice(0, 3);
+      if (kickers.length === 3) {
+        return [
+          cards[i].originalCard,
+          cards[i + 1].originalCard,
+          kickers[0].originalCard,
+          kickers[1].originalCard,
+          kickers[2].originalCard
+        ];
+      }
+    }
+  }
+  return null;
+}
+
+export function evaluateHand(cards: Card[], numCards?: number): HandResult | null {
+  if (!cards || !Array.isArray(cards) || cards.length === 0) {
+    return null;
+  }
+
+  // Ensure we have a valid array of cards
+  const validCards = cards.filter(card => card !== null && card !== undefined);
+  if (validCards.length === 0) {
+    return null;
+  }
+
+  // Convert cards to value-suit pairs and sort by value (descending)
+  const parsedCards = validCards.map(parseCard);
+  parsedCards.sort((a, b) => b.value - a.value);
+
+  // Check for each hand type in descending order of value
+  const royalFlush = checkRoyalFlush(parsedCards);
+  if (royalFlush) return { rank: 10, description: 'Royal Flush', bestHand: royalFlush };
+
+  const straightFlush = checkStraightFlush(parsedCards);
+  if (straightFlush) return { rank: 9, description: 'Straight Flush', bestHand: straightFlush };
+
+  const fourOfAKind = checkFourOfAKind(parsedCards);
+  if (fourOfAKind) return { rank: 8, description: 'Four of a Kind', bestHand: fourOfAKind };
+
+  const fullHouse = checkFullHouse(parsedCards);
+  if (fullHouse) return { rank: 7, description: 'Full House', bestHand: fullHouse };
+
+  const flush = checkFlush(parsedCards);
+  if (flush) return { rank: 6, description: 'Flush', bestHand: flush };
+
+  const straight = checkStraight(parsedCards);
+  if (straight) return { rank: 5, description: 'Straight', bestHand: straight };
+
+  const threeOfAKind = checkThreeOfAKind(parsedCards);
+  if (threeOfAKind) return { rank: 4, description: 'Three of a Kind', bestHand: threeOfAKind };
+
+  const twoPair = checkTwoPair(parsedCards);
+  if (twoPair) return { rank: 3, description: 'Two Pair', bestHand: twoPair };
+
+  const onePair = checkOnePair(parsedCards);
+  if (onePair) return { rank: 2, description: 'One Pair', bestHand: onePair };
+
+  // High card
   return {
-    rank: bestRank,
-    description: HandRankDescriptions[bestRank],
-    bestHand
+    rank: 1,
+    description: `High Card ${getCardRankName(parsedCards[0].value)}`,
+    bestHand: parsedCards.slice(0, 5).map(pc => pc.originalCard)
   };
 }
 
@@ -167,13 +396,13 @@ function getCombinations<T>(array: T[], n: number): T[][] {
 // Evaluate a single 5-card hand
 function evaluateSingleHand(hand: Card[]): { rank: HandRank } {
   const parsedCards = hand.map(parseCard)
-    .sort((a, b) => getCardValue(b.value) - getCardValue(a.value));
+    .sort((a, b) => getCardValue(b.charAt(0)) - getCardValue(a.charAt(0)));
   
   // Check for flush (all same suit)
-  const isFlush = parsedCards.every(card => card.suit === parsedCards[0].suit);
+  const isFlush = parsedCards.every(card => card.charAt(1) === parsedCards[0].charAt(1));
   
   // Check for straight (sequential values)
-  const values = parsedCards.map(card => getCardValue(card.value));
+  const values = parsedCards.map(card => getCardValue(card.charAt(0)));
   let isStraight = true;
   for (let i = 1; i < values.length; i++) {
     if (values[i - 1] !== values[i] + 1) {
@@ -186,7 +415,7 @@ function evaluateSingleHand(hand: Card[]): { rank: HandRank } {
   if (!isStraight && values[0] === 14) {
     const lowAceValues = [5, 4, 3, 2, 1];
     const aceValues = parsedCards.map(card => {
-      const value = getCardValue(card.value);
+      const value = getCardValue(card.charAt(0));
       return value === 14 ? 1 : value;
     }).sort((a, b) => b - a);
     
