@@ -1,6 +1,6 @@
 import { HandRank, evaluateHand } from './poker';
 
-interface PlayerState {
+export interface PlayerState {
   id: string;
   chips: number;
   cards: string[];
@@ -8,7 +8,7 @@ interface PlayerState {
   totalBet: number;
 }
 
-interface GameState {
+export interface GameState {
   currentBet: number;
   pot: number;
   communityCards: string[];
@@ -184,11 +184,11 @@ const evaluateHandStrength = (cards: string[], communityCards: string[]): number
   }
   
   // Post-flop: use the evaluateHand function
-  const evaluation = evaluateHand(cards, communityCards);
+  const evaluation = evaluateHand(cards, communityCards as any);
   
   // Convert rank to a 0-1 scale
   // Higher ranks (Royal Flush = 10) should be closer to 1
-  let strength = evaluation.rank / 10;
+  let strength = evaluation!.rank / 10;
   
   // Adjust strength based on hole cards and community cards
   // Add some randomness to make AI less predictable

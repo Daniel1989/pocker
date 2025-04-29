@@ -9,9 +9,9 @@ export interface PlayerState {
   cards?: string[];
   folded: boolean;
   chips: number;
-  contribution: number;
-  isAllIn: boolean;
-  name: string;
+  contribution?: number;
+  isAllIn?: boolean;
+  name?: string;
 }
 
 export interface GameState {

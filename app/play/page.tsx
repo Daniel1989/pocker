@@ -8,8 +8,9 @@ import GameLog from '../components/GameLog';
 import PlayerStatusBar from '../components/PlayerStatusBar';
 import { PlayerInfo } from '../components/Player';
 import { generateDeck, dealCards, dealCommunityCards, evaluateHand, determineWinner, Card } from '../lib/poker';
-import { makeAIDecision, createAIPersonality, AILevel } from '../lib/ai-player';
-
+import { createAIPersonality, AILevel } from '../lib/ai-player';
+import Link from 'next/link';
+import { makeAIDecision } from '../lib/ai-player-llm';
 // Define PlayerState interface to match ai-player.ts
 interface PlayerState {
   id: string;
@@ -45,7 +46,17 @@ interface LogEntry {
   timestamp: number;
 }
 
-const PokerGamePage = () => {
+interface PlayPageProps {
+  searchParams: {
+    gameId?: string;
+    mode?: string;
+  }
+}
+
+export default function PokerGamePage({ searchParams }: PlayPageProps) {
+  const { gameId, mode } = searchParams;
+  const isReviewMode = mode === 'review';
+
   // User info
   const [userId] = useState('user-1');
   const [userName] = useState('You');
@@ -65,13 +76,12 @@ const PokerGamePage = () => {
   const [playerContributions, setPlayerContributions] = useState<Record<string, number>>({});
   const [gameLogs, setGameLogs] = useState<LogEntry[]>([]);
   const [isLogVisible, setIsLogVisible] = useState(true);
-  const [isReviewMode, setIsReviewMode] = useState(false);
   
   // Ref to track if an AI action is in progress to prevent multiple simultaneous AI actions
   const isAIActing = useRef(false);
 
   // Add gameId state
-  const [gameId, setGameId] = useState<string | null>(null);
+  const [gameIdState, setGameId] = useState<string | null>(null);
 
   // Initialize or reset the game
   const initializeGame = useCallback(() => {
@@ -335,7 +345,7 @@ const PokerGamePage = () => {
   // Modify handlePlayerAction to store actions
   const handlePlayerAction = async (action: string, amount?: number) => {
     // Prevent actions if game is not active
-    if (!isGameActive || !gameId) {
+    if (!isGameActive || !gameIdState) {
       console.log("Game not active, ignoring player action");
       return;
     }
@@ -359,7 +369,7 @@ const PokerGamePage = () => {
 
     try {
       // Store the action in the database
-      const response = await fetch(`/api/games/${gameId}/actions`, {
+      const response = await fetch(`/api/games/${gameIdState}/actions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -812,7 +822,6 @@ const PokerGamePage = () => {
   
   // Start a new hand
   const startNewHand = () => {
-    setIsReviewMode(false);
     setShowdown(false);
     
     // Rotate dealer position
@@ -879,61 +888,61 @@ const PokerGamePage = () => {
   };
   
   return (
-    <div className="flex flex-col min-h-screen bg-gray-900">
-      <header className="bg-gray-800 p-4 text-white flex justify-between items-center">
-        <h1 className="text-2xl font-bold">Texas Hold'em Poker</h1>
-        <button 
-          onClick={toggleLogVisibility}
-          className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded text-sm"
-        >
-          {isLogVisible ? 'Hide Log' : 'Show Log'}
-        </button>
-      </header>
-      
-      <main className="flex-grow flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-4xl">
-          {!isGameActive && !winnerInfo && (
-            <div className="text-center mb-6">
-              <button
-                onClick={startGame}
-                className="bg-green-600 hover:bg-green-700 text-white py-3 px-8 rounded-lg text-xl font-bold"
-              >
-                Start Game
-              </button>
-            </div>
-          )}
-          
-          <PokerTable
-            players={players}
-            communityCards={communityCards}
-            pot={pot}
-            currentPlayerIndex={currentPlayerIndex}
-            dealerIndex={dealerIndex}
-            gamePhase={gamePhase}
-            userId={userId}
-            showdown={showdown || isReviewMode}
-          />
-          
-          {isGameActive && userPlayer && isUserTurn && (
-            <div className="mt-6">
-              <ActionControls
-                currentBet={currentBet}
-                playerChips={userPlayer.chips}
-                playerContribution={userContribution}
-                isPlayerTurn={true}
-                canCheck={canUserCheck}
-                canRaise={currentBet > 0}
-                onFold={handleFold}
-                onCheck={handleCheck}
-                onCall={handleCall}
-                onBet={handleBet}
-                onRaise={handleRaise}
-                onAllIn={handleAllIn}
-              />
-            </div>
-          )}
+    <div className="container mx-auto px-4 py-8">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">
+          {isReviewMode ? 'Game Review' : 'Poker Game'}
+        </h1>
+        {isReviewMode && (
+          <Link 
+            href="/games" 
+            className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 transition-colors"
+          >
+            Back to Games
+          </Link>
+        )}
+      </div>
+
+      {!isGameActive && !winnerInfo && !isReviewMode && (
+        <div className="text-center mb-8">
+          <button
+            onClick={startGame}
+            className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg text-xl font-bold shadow-lg transition-colors"
+          >
+            Start New Game
+          </button>
         </div>
-      </main>
+      )}
+      
+      <PokerTable
+        players={players}
+        communityCards={communityCards}
+        pot={pot}
+        currentPlayerIndex={currentPlayerIndex}
+        dealerIndex={dealerIndex}
+        gamePhase={gamePhase}
+        userId={userId}
+        showdown={showdown || isReviewMode}
+      />
+      
+      {isGameActive && userPlayer && isUserTurn && (
+        <div className="mt-6">
+          <ActionControls
+            currentBet={currentBet}
+            playerChips={userPlayer.chips}
+            playerContribution={userContribution}
+            isPlayerTurn={true}
+            canCheck={canUserCheck}
+            canRaise={currentBet > 0}
+            onFold={handleFold}
+            onCheck={handleCheck}
+            onCall={handleCall}
+            onBet={handleBet}
+            onRaise={handleRaise}
+            onAllIn={handleAllIn}
+          />
+        </div>
+      )}
       
       <PlayerStatusBar
         players={players}
@@ -959,11 +968,9 @@ const PokerGamePage = () => {
           onPlayAgain={startNewHand}
           onReview={() => setIsReviewMode(true)}
           isReviewMode={isReviewMode}
-          gameId={gameId || undefined}
+          gameId={gameIdState || undefined}
         />
       )}
     </div>
   );
-};
-
-export default PokerGamePage; 
+} 

@@ -2,54 +2,26 @@ import { TexasHoldem } from 'poker-odds-calc';
 import { type Card } from './types';
 import { type PlayerState } from './types';
 
-// Convert our card format to poker-odds-calc format
-const convertCard = (card: Card): string => {
-  const rank = card.rank.toUpperCase();
-  const suit = card.suit.toLowerCase();
-  return `${rank}${suit}`;
-};
-
-// Convert array of cards to poker-odds-calc format
-const convertCards = (cards: Card[]): [string, string] => {
-  if (cards.length !== 2) {
-    throw new Error('Player must have exactly 2 cards');
-  }
-  return [convertCard(cards[0]), convertCard(cards[1])];
-};
-
-const convertCommunityCards = (cards: Card[]): string[] => {
-  return cards.map(convertCard);
-};
-
-interface Player {
-  id: string;
-  cards: string[];
-  folded: boolean;
-}
-
-// Convert card format from "As" to "A♠"
+// Convert card format from "AH" to "Ah" for poker-odds-calc
 function convertCardFormat(card: string): string {
-  // const suits: { [key: string]: string } = {
-  //   's': '♠',
-  //   'h': '♥',
-  //   'd': '♦',
-  //   'c': '♣'
-  // };
-  const suits: { [key: string]: string } = {
-    's': 's',
-    'h': 'h',
-    'd': 'd',
-    'c': 'c'
-  };
   const rank = card[0].toUpperCase();
-  const suit = suits[card[1].toLowerCase()];
+  const suit = card[1].toLowerCase();
   return `${rank}${suit}`;
 }
 
 // Convert array of cards to hand type
 function convertToHand(cards: string[]): [string, string] {
+  if (cards.length !== 2) {
+    throw new Error('Hand must have exactly 2 cards');
+  }
   const formattedCards = cards.map(convertCardFormat);
-  return formattedCards as [string, string];
+  return [formattedCards[0], formattedCards[1]];
+}
+
+interface Player {
+  id: string;
+  cards: string[];
+  folded: boolean;
 }
 
 // Calculate win probability for multiple players
@@ -86,7 +58,8 @@ export function calculateWinProbability(
 
     // Add community cards if any
     if (communityCards.length > 0) {
-      game.setBoard(convertToHand(communityCards));
+      const formattedCommunityCards = communityCards.map(convertCardFormat);
+      game.setBoard(formattedCommunityCards);
     }
 
     // Calculate odds
@@ -100,11 +73,6 @@ export function calculateWinProbability(
       if (player.folded) {
         winProbabilities[player.id] = 0;
       } else {
-        // The result is an array of objects with getEquity() method
-        // const equity = Array.isArray(result) && result[activeIndex] && typeof result[activeIndex].getEquity === 'function' 
-        //   ? result[activeIndex].getEquity() 
-        //   : 0;
-
         const activePlayerIndex = activaPlayerIndex.findIndex(i => i === index)
         winProbabilities[player.id] = calcPlayers[activePlayerIndex].getWinsPercentage();
         activeIndex++;
@@ -128,15 +96,13 @@ export function getHandStrength(playerCards: string[], communityCards: string[])
     const game = new TexasHoldem();
     game.addPlayer(convertToHand(playerCards));
     if (communityCards.length > 0) {
-      game.setBoard(convertToHand(communityCards));
+      const formattedCommunityCards = communityCards.map(convertCardFormat);
+      game.setBoard(formattedCommunityCards);
     }
     
     const result = game.calculate();
-    // The result is an array of objects with getEquity() method
-    const equity = Array.isArray(result) && result[0] && typeof result[0].getEquity === 'function'
-      ? result[0].getEquity()
-      : 0;
-    return equity / 100;
+    const players = result.getPlayers();
+    return players[0].getWinsPercentage() / 100;
   } catch (error) {
     console.error('Error calculating hand strength:', error);
     return 0;
@@ -162,4 +128,4 @@ export function shuffleArray<T>(array: T[]): T[] {
     [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
   }
   return newArray;
-} 
+}
